@@ -10,9 +10,133 @@ type Student = { id: string; name: string; cccd: string | null; status: string; 
 export default function AdminDashboard() {
   const [summary, setSummary] = useState<Summary | null>(null); const [items, setItems] = useState<Student[]>([]); const [error, setError] = useState("");
   useEffect(() => { fetch("/api/admin/review?view=pending&pageSize=10").then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error); setSummary(j.summary); setItems(j.items); }).catch((e) => setError(e.message)); }, []);
-  return <><AppHeader mode="admin"/><main className="admin-main"><div className="container"><div className="page-title"><div><span className="eyebrow">TỔNG QUAN VẬN HÀNH</span><h1>Bảng điều khiển nhập học</h1><p>Theo dõi nhanh tiến độ tiếp nhận và xử lý hồ sơ.</p></div><Link href="/admin/import" style={{background: '#0f172a', color: '#ffffff', textDecoration: 'none', padding: '12px 24px', borderRadius: '10px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '8px', transition: 'background 0.2s', boxShadow: '0 4px 6px rgba(15,23,42,0.1)'}} onMouseEnter={e=>e.currentTarget.style.background='#1e293b'} onMouseLeave={e=>e.currentTarget.style.background='#0f172a'}>+ Nhập danh sách trúng tuyển</Link></div>{error && <div className="notice notice--error">{error}</div>}
-    <div className="stat-grid" style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '32px'}}><article style={{background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.02)'}}><span style={{display: 'block', color: '#64748b', fontSize: '14px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px'}}>Tổng hồ sơ</span><strong style={{display: 'block', fontSize: '36px', fontWeight: 700, color: '#0f172a', marginBottom: '4px'}}>{summary?.totalImported ?? "—"}</strong><small style={{color: '#94a3b8', fontSize: '13px'}}>đã nhập vào hệ thống</small></article><article style={{background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.02)'}}><span style={{display: 'block', color: '#f59e0b', fontSize: '14px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px'}}>Chờ xử lý</span><strong style={{display: 'block', fontSize: '36px', fontWeight: 700, color: '#0f172a', marginBottom: '4px'}}>{summary?.pending ?? "—"}</strong><small style={{color: '#94a3b8', fontSize: '13px'}}>cần quản trị kiểm tra</small></article><article style={{background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.02)'}}><span style={{display: 'block', color: '#10b981', fontSize: '14px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px'}}>Đã duyệt</span><strong style={{display: 'block', fontSize: '36px', fontWeight: 700, color: '#0f172a', marginBottom: '4px'}}>{summary?.reviewed ?? "—"}</strong><small style={{color: '#94a3b8', fontSize: '13px'}}>đủ điều kiện hoàn tất</small></article><article style={{background: '#ffffff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.02)'}}><span style={{display: 'block', color: '#ef4444', fontSize: '14px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px'}}>Cần bổ sung</span><strong style={{display: 'block', fontSize: '36px', fontWeight: 700, color: '#0f172a', marginBottom: '4px'}}>{summary?.countByStatus?.NEED_REVISION ?? "—"}</strong><small style={{color: '#94a3b8', fontSize: '13px'}}>đã trả về học sinh</small></article></div>
-    <div className="dashboard-grid" style={{display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px'}}><section className="panel" style={{background: '#ffffff', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border: '1px solid #f1f5f9'}}><div className="panel__head" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}><div><h2 style={{fontSize: '18px', fontWeight: 600, color: '#0f172a'}}>Hồ sơ cần ưu tiên</h2><p style={{fontSize: '14px', color: '#64748b'}}>Danh sách mới gửi hoặc có cảnh báo.</p></div><Link href="/admin/review" style={{color: '#3b82f6', fontWeight: 500, textDecoration: 'none', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '4px'}}>Xem tất cả →</Link></div><div className="table-wrap" style={{border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden'}}><table style={{width: '100%', borderCollapse: 'collapse', textAlign: 'left'}}><thead><tr><th style={{background: '#f8fafc', padding: '16px', color: '#475569', fontWeight: 600, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.02em', borderBottom: '2px solid #e2e8f0'}}>Học sinh</th><th style={{background: '#f8fafc', padding: '16px', color: '#475569', fontWeight: 600, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.02em', borderBottom: '2px solid #e2e8f0'}}>Trường THCS</th><th style={{background: '#f8fafc', padding: '16px', color: '#475569', fontWeight: 600, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.02em', borderBottom: '2px solid #e2e8f0'}}>Trạng thái</th><th style={{background: '#f8fafc', padding: '16px', color: '#475569', fontWeight: 600, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.02em', borderBottom: '2px solid #e2e8f0'}}>Cảnh báo</th><th style={{background: '#f8fafc', padding: '16px', borderBottom: '2px solid #e2e8f0'}}></th></tr></thead><tbody>{items.length ? items.map((student) => <tr key={student.id} style={{borderBottom: '1px solid #f1f5f9', transition: 'background 0.15s'}} onMouseEnter={e=>e.currentTarget.style.background='#f8fafc'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><td style={{padding: '16px'}}><strong style={{display: 'block', fontSize: '15px', color: '#0f172a', fontWeight: 600}}>{student.name}</strong><small style={{color: '#64748b', fontSize: '13px'}}>{student.cccd ? `CCCD: ${student.cccd}` : "Chưa có CCCD"}</small></td><td style={{padding: '16px', color: '#334155', fontSize: '14px', fontWeight: 500}}>{student.school}</td><td style={{padding: '16px'}}><StatusBadge status={student.status}/></td><td style={{padding: '16px'}}>{student.warnings[0] ? <span style={{fontSize: '12px', color: '#b45309', background: '#fef3c7', padding: '4px 10px', borderRadius: '12px', whiteSpace: 'nowrap'}}>⚠️ {student.warnings[0]}</span> : <span style={{fontSize: '13px', color: '#10b981'}}>✓ Tốt</span>}</td><td style={{padding: '16px', textAlign: 'right'}}><Link style={{color: '#3b82f6', fontWeight: 600, textDecoration: 'none'}} href={`/admin/review/${student.id}`}>Duyệt</Link></td></tr>) : <tr><td colSpan={5} style={{padding: '40px', textAlign: 'center', color: '#64748b'}}>Chưa có hồ sơ cần xử lý.</td></tr>}</tbody></table></div></section>
-      <aside className="panel quick-actions" style={{background: '#ffffff', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', border: '1px solid #f1f5f9'}}><h2 style={{fontSize: '18px', fontWeight: 600, color: '#0f172a', marginBottom: '20px'}}>Tác vụ nhanh</h2><div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}><Link href="/admin/import" style={{display: 'flex', alignItems: 'center', gap: '16px', padding: '16px', border: '1px solid #e2e8f0', borderRadius: '12px', textDecoration: 'none', transition: 'all 0.2s'}} onMouseEnter={e=>{e.currentTarget.style.borderColor='#3b82f6';e.currentTarget.style.boxShadow='0 2px 8px rgba(59,130,246,0.1)'}} onMouseLeave={e=>{e.currentTarget.style.borderColor='#e2e8f0';e.currentTarget.style.boxShadow='none'}}><b style={{background: '#eff6ff', color: '#3b82f6', width: '40px', height: '40px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', fontWeight: 'bold'}}>01</b><span style={{display: 'flex', flexDirection: 'column'}}><strong style={{color: '#0f172a', fontSize: '15px', fontWeight: 600}}>Nhập Excel</strong><small style={{color: '#64748b', fontSize: '13px', marginTop: '2px'}}>Thêm hoặc cập nhật danh sách</small></span></Link><Link href="/admin/review" style={{display: 'flex', alignItems: 'center', gap: '16px', padding: '16px', border: '1px solid #e2e8f0', borderRadius: '12px', textDecoration: 'none', transition: 'all 0.2s'}} onMouseEnter={e=>{e.currentTarget.style.borderColor='#3b82f6';e.currentTarget.style.boxShadow='0 2px 8px rgba(59,130,246,0.1)'}} onMouseLeave={e=>{e.currentTarget.style.borderColor='#e2e8f0';e.currentTarget.style.boxShadow='none'}}><b style={{background: '#eff6ff', color: '#3b82f6', width: '40px', height: '40px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', fontWeight: 'bold'}}>02</b><span style={{display: 'flex', flexDirection: 'column'}}><strong style={{color: '#0f172a', fontSize: '15px', fontWeight: 600}}>Duyệt hồ sơ</strong><small style={{color: '#64748b', fontSize: '13px', marginTop: '2px'}}>Đối chiếu thông tin và hình ảnh</small></span></Link><Link href="/admin/exports" style={{display: 'flex', alignItems: 'center', gap: '16px', padding: '16px', border: '1px solid #e2e8f0', borderRadius: '12px', textDecoration: 'none', transition: 'all 0.2s'}} onMouseEnter={e=>{e.currentTarget.style.borderColor='#3b82f6';e.currentTarget.style.boxShadow='0 2px 8px rgba(59,130,246,0.1)'}} onMouseLeave={e=>{e.currentTarget.style.borderColor='#e2e8f0';e.currentTarget.style.boxShadow='none'}}><b style={{background: '#eff6ff', color: '#3b82f6', width: '40px', height: '40px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', fontWeight: 'bold'}}>03</b><span style={{display: 'flex', flexDirection: 'column'}}><strong style={{color: '#0f172a', fontSize: '15px', fontWeight: 600}}>Xuất dữ liệu</strong><small style={{color: '#64748b', fontSize: '13px', marginTop: '2px'}}>Tạo Excel, PDF hoặc ZIP ảnh</small></span></Link></div></aside>
-    </div></div></main></>;
+  return (
+    <>
+      <AppHeader mode="admin" />
+      <main className="admin-main">
+        <div className="container">
+          <div className="page-title">
+            <div>
+              <span className="eyebrow">TỔNG QUAN VẬN HÀNH</span>
+              <h1>Bảng điều khiển nhập học</h1>
+              <p>Theo dõi nhanh tiến độ tiếp nhận và xử lý hồ sơ.</p>
+            </div>
+            <Link href="/admin/import" className="button button--primary">
+              + Nhập danh sách trúng tuyển
+            </Link>
+          </div>
+          {error && <div className="notice notice--error">{error}</div>}
+
+          <div className="stat-grid">
+            <article>
+              <span>Tổng hồ sơ</span>
+              <strong>{summary?.totalImported ?? "—"}</strong>
+              <small>đã nhập vào hệ thống</small>
+            </article>
+            <article>
+              <span style={{ color: "var(--gold)" }}>Chờ xử lý</span>
+              <strong>{summary?.pending ?? "—"}</strong>
+              <small>cần quản trị kiểm tra</small>
+            </article>
+            <article>
+              <span style={{ color: "var(--green)" }}>Đã duyệt</span>
+              <strong>{summary?.reviewed ?? "—"}</strong>
+              <small>đủ điều kiện hoàn tất</small>
+            </article>
+            <article>
+              <span style={{ color: "var(--red)" }}>Cần bổ sung</span>
+              <strong>{summary?.countByStatus?.NEED_REVISION ?? "—"}</strong>
+              <small>đã trả về học sinh</small>
+            </article>
+          </div>
+
+          <div className="dashboard-grid">
+            <section className="panel">
+              <div className="panel__head">
+                <div>
+                  <h2>Hồ sơ cần ưu tiên</h2>
+                  <p>Danh sách mới gửi hoặc có cảnh báo.</p>
+                </div>
+                <Link href="/admin/review" className="table-link">Xem tất cả →</Link>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Học sinh</th>
+                      <th>Trường THCS</th>
+                      <th>Trạng thái</th>
+                      <th>Cảnh báo</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.length ? (
+                      items.map((student) => (
+                        <tr key={student.id}>
+                          <td>
+                            <strong>{student.name}</strong>
+                            <small>{student.cccd ? `CCCD: ${student.cccd}` : "Chưa có CCCD"}</small>
+                          </td>
+                          <td>{student.school}</td>
+                          <td>
+                            <StatusBadge status={student.status} />
+                          </td>
+                          <td>
+                            {student.warnings[0] ? (
+                              <div className="warning-list"><span>⚠️ {student.warnings[0]}</span></div>
+                            ) : (
+                              <span className="ok-text">✓ Tốt</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: "right" }}>
+                            <Link className="table-link" href={`/admin/review/${student.id}`}>
+                              Duyệt
+                            </Link>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="empty-cell">Chưa có hồ sơ cần xử lý.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <aside className="panel">
+              <div className="panel__head">
+                <h2>Tác vụ nhanh</h2>
+              </div>
+              <div className="quick-actions">
+                <Link href="/admin/import">
+                  <b>01</b>
+                  <span>
+                    <strong>Nhập Excel</strong>
+                    <small>Thêm hoặc cập nhật danh sách</small>
+                  </span>
+                </Link>
+                <Link href="/admin/review">
+                  <b>02</b>
+                  <span>
+                    <strong>Duyệt hồ sơ</strong>
+                    <small>Đối chiếu thông tin và hình ảnh</small>
+                  </span>
+                </Link>
+                <Link href="/admin/exports">
+                  <b>03</b>
+                  <span>
+                    <strong>Xuất dữ liệu</strong>
+                    <small>Tạo Excel, PDF hoặc ZIP ảnh</small>
+                  </span>
+                </Link>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </main>
+    </>
+  );
 }

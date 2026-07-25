@@ -28,7 +28,6 @@ export default function HomePage() {
         </section>
         
       </main>
-      <footer className="footer"><div className="container">© 2026 Trường THPT Võ Văn Kiệt · Hệ thống nhập học trực tuyến</div></footer>
     </>
   );
 }

@@ -368,7 +368,7 @@ export async function generateStudentPdf(
         .fontSize(9)
         .font("NotoSans")
         .text(
-          `Ngày tạo PDF: ${new Date().toLocaleString("vi-VN")}   |   CCCD: ${cccd}`,
+          `Ngày tạo PDF: ${new Date().toLocaleString("vi-VN")}   |   CCCD: ${cccd}   |   Copyright 2026 by Truong Minh Khiem`,
           {
             align: "right",
           },

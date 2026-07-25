@@ -15,7 +15,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="vi">
-      <body className={beVietnamPro.className}>{children}</body>
+      <body className={beVietnamPro.className} style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          {children}
+        </div>
+        <footer className="footer"><div className="container">© 2026 Trường THPT Võ Văn Kiệt · Hệ thống nhập học trực tuyến - Copyright 2026 by Truong Minh Khiem</div></footer>
+      </body>
     </html>
   );
 }

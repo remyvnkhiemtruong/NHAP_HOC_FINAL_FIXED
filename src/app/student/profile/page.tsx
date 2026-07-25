@@ -265,9 +265,14 @@ export default function StudentProfilePage() {
   const [fields, setFields] = useState<Record<string, FieldValue>>({});
   const [admission, setAdmission] = useState<Record<string, string>>({});
   const [step, setStep] = useState(0);
+  const [highestStep, setHighestStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
   const [addressData, setAddressData] = useState<any>(null);
+
+  useEffect(() => {
+    setHighestStep(h => Math.max(h, step));
+  }, [step]);
 
   useEffect(() => {
     fetch("/smas-data.json").then((r) => r.json()).then(setAddressData).catch(console.error);
@@ -444,6 +449,7 @@ export default function StudentProfilePage() {
   }
   function canGoToStep(targetStep: number) {
     if (targetStep <= step) return true;
+    if (targetStep > highestStep) return false;
     for (let i = 0; i < targetStep; i++) {
       if (!isStepValid(i)) return false;
     }
