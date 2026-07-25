@@ -17,21 +17,17 @@ function getRedis(): IORedis | null {
     return null;
   }
 
-  const host = process.env.REDIS_HOST;
-  if (!host) {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) {
     redisClient = null;
     return null;
   }
 
-  redisClient = new IORedis({
-    host,
-    port: Number.parseInt(process.env.REDIS_PORT ?? "6379", 10),
-    username: process.env.REDIS_USERNAME || undefined,
-    password: process.env.REDIS_PASSWORD || undefined,
+  redisClient = new IORedis(redisUrl, {
     lazyConnect: true,
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
-    connectTimeout: 1_500,
+    connectTimeout: 3_000,
     retryStrategy: () => null,
   });
   redisClient.on("error", (error) => {
