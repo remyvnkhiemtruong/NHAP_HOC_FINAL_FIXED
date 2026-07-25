@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="450" viewBox="0 0 720 450" role="img" aria-label="Minh họa CCCD mặt trước">
+  <rect width="720" height="450" rx="28" fill="#fef3c7" stroke="#b45309" stroke-width="6"/>
+  <rect x="42" y="95" width="180" height="235" rx="16" fill="#cbd5e1"/>
+  <circle cx="132" cy="170" r="48" fill="#94a3b8"/>
+  <path d="M65 305c9-72 36-107 67-107s58 35 67 107" fill="#64748b"/>
+  <text x="360" y="58" font-family="Arial, sans-serif" font-size="30" font-weight="700" text-anchor="middle" fill="#7c2d12">CĂN CƯỚC CÔNG DÂN</text>
+  <g stroke="#92400e" stroke-width="10" stroke-linecap="round">
+    <path d="M275 135h355"/><path d="M275 185h300"/><path d="M275 235h335"/><path d="M275 285h260"/><path d="M275 335h310"/>
+  </g>
+  <text x="360" y="415" font-family="Arial, sans-serif" font-size="22" text-anchor="middle" fill="#7c2d12">Minh họa — không chứa dữ liệu cá nhân</text>
+</svg>

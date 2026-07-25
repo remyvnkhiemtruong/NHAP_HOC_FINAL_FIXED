@@ -1,0 +1,364 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+}
+
+enum StudentStatus {
+  IMPORTED
+  DRAFT
+  SUBMITTED
+  NEED_REVISION
+  RESUBMITTED
+  APPROVED
+  LOCKED
+  EXPORTED
+  NEEDS_CCCD_CORRECTION
+}
+
+enum ChangeStatus {
+  UNCHANGED
+  PROPOSED
+  ACCEPTED
+  REJECTED
+  ADMIN_EDITED
+}
+
+enum FileStatus {
+  MISSING
+  UPLOADED
+  AUTO_VALID
+  AUTO_WARNING
+  AUTO_INVALID
+  ADMIN_APPROVED
+  ADMIN_REJECTED
+  REUPLOAD_REQUIRED
+}
+
+enum FileCategory {
+  PHOTO_4X6
+  CCCD_FRONT
+  CCCD_BACK
+  OTHER
+}
+
+enum FamilyMemberType {
+  FATHER
+  MOTHER
+  GUARDIAN
+}
+
+enum ExportJobType {
+  STUDENT_PDF
+  BULK_STUDENT_PDF_ZIP
+  SCHOOL_EXCEL
+  PHOTO_ZIP
+  CCCD_ZIP
+  SCAN_REPORT_CSV
+  SCAN_REPORT_PDF
+}
+
+enum ExportJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model AdminUser {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  password_hash String
+  role          Role     @default(ADMIN)
+  active        Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  
+  admin_sessions AdminSession[]
+}
+
+model ImportBatch {
+  id                String            @id @default(cuid())
+  original_filename String
+  checksum          String            @unique
+  sheet_name        String
+  total_rows        Int
+  valid_rows        Int
+  warning_rows      Int
+  error_rows        Int
+  imported_by       String
+  created_at        DateTime          @default(now())
+  admission_records AdmissionRecord[]
+}
+
+model AdmissionRecord {
+  id                           String  @id @default(cuid())
+  import_batch_id              String
+  source_row_number            Int
+  source_tt                    String
+  cccd_source                  String
+  full_name_source             String
+  female_mark_source           String?
+  dob_source                   String
+  ethnicity_source             String?
+  residence_source             String?
+  middle_school_source         String?
+  middle_school_commune_source String?
+  score_fields                 Json?
+  note_source                  String?
+  source_json                  Json
+  data_quality_flags           Json?
+
+  import_batch ImportBatch @relation(fields: [import_batch_id], references: [id])
+  student      Student?    @relation("AdmissionToStudent")
+
+  @@index([cccd_source])
+  @@index([full_name_source])
+  @@unique([import_batch_id, source_row_number])
+}
+
+model Student {
+  id                  String        @id @default(cuid())
+  admission_record_id String        @unique
+  current_cccd        String?       @unique
+  current_dob         String
+  status              StudentStatus @default(IMPORTED)
+  imported_at         DateTime      @default(now())
+  approved_at         DateTime?
+  locked_at           DateTime?
+
+  admission_record AdmissionRecord         @relation("AdmissionToStudent", fields: [admission_record_id], references: [id])
+  profile_values   StudentProfileValue[]
+  profile_versions StudentProfileVersion[]
+  access_sessions  StudentAccessSession[]
+  addresses        Address[]
+  family_members   FamilyMember[]
+  policy_records   PolicyRecord[]
+  disabilities     Disability[]
+  files            FileRecord[]
+
+  @@index([status])
+  @@index([current_cccd, current_dob])
+}
+
+model StudentProfileValue {
+  id             String       @id @default(cuid())
+  student_id     String
+  field_code     String
+  source_value   String?
+  proposed_value String?
+  approved_value String?
+  change_status  ChangeStatus @default(UNCHANGED)
+  updated_at     DateTime     @updatedAt
+
+  student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, field_code])
+}
+
+model StudentProfileVersion {
+  id             String    @id @default(cuid())
+  student_id     String
+  version_number Int
+  snapshot_json  Json
+  submitted_at   DateTime  @default(now())
+  approved_at    DateTime?
+
+  student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, version_number])
+}
+
+model AdminSession {
+  id         String    @id @default(cuid())
+  admin_id   String
+  token_hash String    @unique
+  ip_address String?
+  user_agent String?
+  expires_at DateTime
+  revoked_at DateTime?
+  created_at DateTime  @default(now())
+
+  admin AdminUser @relation(fields: [admin_id], references: [id], onDelete: Cascade)
+
+  @@index([token_hash])
+  @@index([admin_id])
+}
+
+model StudentAccessSession {
+  id         String    @id @default(cuid())
+  student_id String
+  token_hash String    @unique
+  ip_address String?
+  user_agent String?
+  expires_at DateTime
+  revoked_at DateTime?
+  created_at DateTime  @default(now())
+
+  student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@index([token_hash])
+  @@index([student_id])
+}
+
+model Address {
+  id                     String  @id @default(cuid())
+  student_id             String
+  address_type           String // e.g., PERMANENT, TEMPORARY
+  province_code          String?
+  province_name_snapshot String?
+  commune_code           String?
+  commune_name_snapshot  String?
+  hamlet                 String?
+  detailed_text          String?
+
+  student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, address_type])
+}
+
+model FamilyMember {
+  id                 String           @id @default(cuid())
+  student_id         String
+  type               FamilyMemberType
+  absent_or_deceased Boolean          @default(false)
+  full_name          String?
+  birth_year         String?
+  occupation         String?
+  phone              String?
+  email              String?
+  cccd               String?
+
+  student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, type])
+}
+
+model PolicyRecord {
+  id            String  @id @default(cuid())
+  student_id    String
+  has_policy    Boolean @default(false)
+  description   String?
+  policy_regime String?
+  verified      Boolean @default(false)
+
+  student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id])
+}
+
+model Disability {
+  id              String  @id @default(cuid())
+  student_id      String
+  has_disability  Boolean @default(false)
+  disability_type String?
+  not_assessed    Boolean @default(false)
+
+  student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id])
+}
+
+model FileRecord {
+  id              String       @id @default(cuid())
+  student_id      String
+  category        FileCategory
+  storage_key     String
+  original_name   String
+  mime            String
+  size            Int
+  checksum        String
+  width           Int?
+  height          Int?
+  current_version Int          @default(1)
+  status          FileStatus   @default(UPLOADED)
+
+  created_by      String?
+  decision_by     String?
+  decision_at     DateTime?
+  quarantine      Boolean      @default(false)
+
+  student            Student           @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  qr_scan_results    QrScanResult[]
+  ocr_results        OcrResult[]
+  photo_scan_results PhotoScanResult[]
+
+  @@index([status])
+  @@index([category])
+  @@unique([student_id, category, current_version])
+}
+
+model QrScanResult {
+  id          String   @id @default(cuid())
+  file_id     String
+  card_side   String // FRONT, BACK
+  raw_payload String?
+  parsed_json Json?
+  success     Boolean
+  created_at  DateTime @default(now())
+
+  file FileRecord @relation(fields: [file_id], references: [id], onDelete: Cascade)
+}
+
+model OcrResult {
+  id          String   @id @default(cuid())
+  file_id     String
+  engine      String
+  raw_text    String?
+  parsed_json Json?
+  confidence  Float?
+  created_at  DateTime @default(now())
+
+  file FileRecord @relation(fields: [file_id], references: [id], onDelete: Cascade)
+}
+
+model PhotoScanResult {
+  id            String   @id @default(cuid())
+  file_id       String
+  valid         Boolean
+  warning_codes Json?
+  metrics_json  Json?
+  created_at    DateTime @default(now())
+
+  file FileRecord @relation(fields: [file_id], references: [id], onDelete: Cascade)
+}
+
+model ExportJob {
+  id               String          @id @default(cuid())
+  type             ExportJobType
+  status           ExportJobStatus @default(PENDING)
+  progress         Int             @default(0)
+  subject_student_id String?
+  payload_json     Json?
+  active_dedupe_key String?         @unique
+  output_key       String?
+  output_filename  String?
+  output_checksum  String?
+  error_report_key String?
+  created_by       String?
+  created_at       DateTime        @default(now())
+  completed_at     DateTime?
+
+  @@index([status])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actor_type  String // ADMIN, STUDENT, SYSTEM
+  actor_id    String?
+  action      String
+  entity_type String
+  entity_id   String
+  before_json Json?
+  after_json  Json?
+  reason      String?
+  request_id  String?
+  created_at  DateTime @default(now())
+}

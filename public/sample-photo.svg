@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600" role="img" aria-label="Minh họa ảnh chân dung 4x6">
+  <rect width="400" height="600" fill="#dbeafe"/>
+  <circle cx="200" cy="205" r="82" fill="#94a3b8"/>
+  <path d="M70 535c12-118 67-180 130-180s118 62 130 180" fill="#64748b"/>
+  <rect x="18" y="18" width="364" height="564" rx="16" fill="none" stroke="#2563eb" stroke-width="6" stroke-dasharray="16 12"/>
+  <text x="200" y="570" font-family="Arial, sans-serif" font-size="22" text-anchor="middle" fill="#1e3a8a">Ảnh 4×6 nền xanh</text>
+</svg>

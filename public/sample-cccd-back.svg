@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="450" viewBox="0 0 720 450" role="img" aria-label="Minh họa CCCD mặt sau">
+  <rect width="720" height="450" rx="28" fill="#ecfccb" stroke="#3f6212" stroke-width="6"/>
+  <g stroke="#4d7c0f" stroke-width="10" stroke-linecap="round">
+    <path d="M55 85h410"/><path d="M55 135h350"/><path d="M55 185h390"/><path d="M55 235h310"/><path d="M55 285h375"/>
+  </g>
+  <rect x="505" y="65" width="150" height="150" fill="#fff" stroke="#365314" stroke-width="4"/>
+  <g fill="#365314">
+    <rect x="520" y="80" width="42" height="42"/><rect x="598" y="80" width="42" height="42"/><rect x="520" y="158" width="42" height="42"/>
+    <rect x="575" y="135" width="18" height="18"/><rect x="610" y="150" width="22" height="22"/><rect x="565" y="180" width="18" height="18"/>
+  </g>
+  <rect x="55" y="335" width="600" height="48" rx="8" fill="#bef264"/>
+  <text x="360" y="420" font-family="Arial, sans-serif" font-size="22" text-anchor="middle" fill="#365314">Minh họa mặt sau và mã QR</text>
+</svg>
