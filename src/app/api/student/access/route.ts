@@ -19,12 +19,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const ipLimit = await rateLimit(`ratelimit:student:ip:${ip}`, 8, 60_000);
+    const ipLimit = await rateLimit(
+      `ratelimit:student:ip:${ip}`,
+      Number.parseInt(process.env.STUDENT_LOGIN_IP_LIMIT ?? "1200", 10),
+      60_000,
+    );
     const identityKey = crypto.createHash("sha256").update(payload.cccd).digest("hex");
-    const identityLimit = await rateLimit(`ratelimit:student:identity:${identityKey}`, 5, 60_000);
+    const identityLimit = await rateLimit(
+      `ratelimit:student:identity:${identityKey}`,
+      Number.parseInt(process.env.STUDENT_LOGIN_IDENTITY_LIMIT ?? "5", 10),
+      10 * 60_000,
+    );
     if (!ipLimit.success || !identityLimit.success) {
       return NextResponse.json(
-        { error: "Quá nhiều lần thử. Vui lòng chờ một phút rồi thử lại.", code: "RATE_LIMITED" },
+        { error: "Quá nhiều lần thử. Vui lòng chờ rồi thử lại.", code: "RATE_LIMITED" },
         { status: 429 },
       );
     }
