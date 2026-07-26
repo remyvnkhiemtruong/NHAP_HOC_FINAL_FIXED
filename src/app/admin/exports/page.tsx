@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import AppHeader from "@/components/AppHeader";
 const EXPORTS=[{type:"school-excel",title:"Danh sách toàn trường",desc:"File Excel tổng hợp dữ liệu các hồ sơ đã duyệt.",format:"XLSX"},{type:"bulk-student-pdf-zip",title:"Phiếu thông tin học sinh",desc:"Mỗi học sinh một PDF, đóng gói thành ZIP.",format:"ZIP"},{type:"photo-4x6-zip",title:"Toàn bộ ảnh 4×6",desc:"Tên ảnh theo số CCCD, chỉ lấy tệp hiện hành đã duyệt.",format:"ZIP"},{type:"cccd-zip",title:"Ảnh căn cước công dân",desc:"Mỗi học sinh một thư mục gồm mặt trước và mặt sau.",format:"ZIP"},{type:"scan-report-csv",title:"Báo cáo QR/OCR",desc:"Kết quả quét và trạng thái đối chiếu từng ảnh CCCD.",format:"CSV"},{type:"scan-report-pdf",title:"Báo cáo kiểm tra ảnh",desc:"Báo cáo PDF phục vụ lưu trữ và ký duyệt.",format:"PDF"}] as const;
-type Job={id:string;type:string;status:string;progress:number;filename:string|null;createdAt:string;ready:boolean;hasErrorReport:boolean};
+type Job={id:string;type:string;status:string;progress:number;filename:string|null;createdAt:string;ready:boolean;hasErrorReport:boolean;official:boolean;officialEligible:boolean};
 export default function ExportsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [busy, setBusy] = useState("");
@@ -40,6 +40,27 @@ export default function ExportsPage() {
     }
   }
 
+  async function makeOfficial(jobId: string) {
+    if (!confirm("Xác nhận tạo đợt xuất chính thức và chuyển các hồ sơ đã khóa sang Đã xuất?")) return;
+    setBusy(jobId);
+    setMessage(null);
+    try {
+      const r = await fetch("/api/admin/export-batches", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ artifactJobIds: [jobId] }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Không thể tạo đợt xuất chính thức.");
+      setMessage({ tone: "success", text: "Đã tạo đợt xuất chính thức." });
+      await load();
+    } catch (e) {
+      setMessage({ tone: "error", text: e instanceof Error ? e.message : "Không thể tạo đợt xuất chính thức." });
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <>
       <AppHeader mode="admin" />
@@ -53,7 +74,7 @@ export default function ExportsPage() {
             </div>
           </div>
           {message && (
-            <div className={`notice notice--${message.tone}`} style={{ marginBottom: '20px' }}>
+            <div className={`notice notice--${message.tone} mb-20`}>
               {message.text}
             </div>
           )}
@@ -111,18 +132,27 @@ export default function ExportsPage() {
                           </span>
                         </td>
                         <td>
-                          <div className="job-progress">
-                            <div style={{ width: `${job.progress}%` }} />
-                          </div>
+                          <div className="job-progress"><progress max={100} value={job.progress} aria-label={`Tiến độ ${job.progress}%`} /></div>
                           <small>{job.progress}%</small>
                         </td>
                         <td>
                           {job.ready ? (
-                            <a className="table-link" href={`/api/admin/jobs/${job.id}/download`}>
-                              Tải xuống ↓
-                            </a>
+                            <>
+                              <a className="table-link" href={`/api/admin/jobs/${job.id}/download`}>
+                                Tải xuống ↓
+                              </a>
+                              {!job.official && job.officialEligible && (
+                                <button className="button button--secondary" disabled={Boolean(busy)} onClick={() => makeOfficial(job.id)}>
+                                  Xuất chính thức
+                                </button>
+                              )}
+                              {!job.official && !job.officialEligible && (
+                                <small>Khóa đủ hồ sơ và xuất lại nếu dữ liệu đã thay đổi.</small>
+                              )}
+                              {job.official && <span>Đã chính thức</span>}
+                            </>
                           ) : job.status === "FAILED" && job.hasErrorReport ? (
-                            <a className="table-link" style={{ color: "var(--red)" }} href={`/api/admin/jobs/${job.id}/download?report=1`}>
+                            <a className="table-link text-red" href={`/api/admin/jobs/${job.id}/download?report=1`}>
                               Xem lỗi
                             </a>
                           ) : (

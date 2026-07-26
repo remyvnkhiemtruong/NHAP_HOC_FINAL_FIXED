@@ -1,8 +1,23 @@
 import crypto from "crypto";
 import fs from "fs/promises";
+import { createReadStream, createWriteStream } from "fs";
 import path from "path";
+import { Readable, Transform, type Writable } from "stream";
+import { pipeline } from "stream/promises";
 
-const STORAGE_ROOT = path.resolve(process.env.STORAGE_ROOT ?? path.join(process.cwd(), "storage"));
+function configuredStorageRoot(): string {
+  const configured = process.env.STORAGE_ROOT?.trim();
+  if (!configured || configured === "storage" || configured === "./storage") {
+    return path.join(process.cwd(), "storage");
+  }
+  if (path.isAbsolute(configured)) return path.normalize(configured);
+  return path.resolve(
+    /* turbopackIgnore: true */ process.cwd(),
+    configured,
+  );
+}
+
+const STORAGE_ROOT = configuredStorageRoot();
 const UPLOAD_DIR = path.join(STORAGE_ROOT, "uploads");
 const EXPORT_DIR = path.join(STORAGE_ROOT, "exports");
 
@@ -88,10 +103,73 @@ export async function saveExportFile(jobId: string, filename: string, buffer: Bu
   return `${safeJobId}/${safeFilename}`;
 }
 
+export async function writeExportFile(
+  jobId: string,
+  filename: string,
+  producer: (destination: Writable) => Promise<void>,
+): Promise<{ storageKey: string; checksum: string; size: number }> {
+  const safeJobId = safeSegment(jobId, "job id");
+  const safeFilename = path.basename(filename).replaceAll(/[^\p{L}\p{N}._ -]/gu, "_").slice(0, 180);
+  if (!safeFilename) throw new Error("Invalid export filename");
+  const dir = resolveInside(EXPORT_DIR, safeJobId);
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  const finalPath = resolveInside(dir, safeFilename);
+  const temporaryPath = `${finalPath}.tmp-${crypto.randomUUID()}`;
+  const hash = crypto.createHash("sha256");
+  let size = 0;
+  const checksumStream = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      hash.update(chunk);
+      size += chunk.length;
+      callback(null, chunk);
+    },
+  });
+  const output = createWriteStream(temporaryPath, { flags: "wx", mode: 0o600 });
+  const completed = pipeline(checksumStream, output);
+  try {
+    await producer(checksumStream);
+    if (!checksumStream.writableEnded) checksumStream.end();
+    await completed;
+    await fs.rename(temporaryPath, finalPath);
+    return {
+      storageKey: `${safeJobId}/${safeFilename}`,
+      checksum: hash.digest("hex"),
+      size,
+    };
+  } catch (error) {
+    checksumStream.destroy();
+    output.destroy();
+    await completed.catch(() => undefined);
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
 export async function deleteExportFile(storageKey: string): Promise<void> {
   await fs.rm(resolveInside(EXPORT_DIR, storageKey), { force: true });
 }
 
 export async function readExportFile(storageKey: string): Promise<Buffer> {
   return fs.readFile(resolveInside(EXPORT_DIR, storageKey));
+}
+
+export async function getExportFileSize(storageKey: string): Promise<number> {
+  return (await fs.stat(resolveInside(EXPORT_DIR, storageKey))).size;
+}
+
+export async function streamExportFile(
+  storageKey: string,
+  range?: { start: number; end: number },
+): Promise<{ stream: ReadableStream<Uint8Array>; size: number; totalSize: number }> {
+  const filePath = resolveInside(EXPORT_DIR, storageKey);
+  const metadata = await fs.stat(filePath);
+  const start = range?.start ?? 0;
+  const end = range?.end ?? metadata.size - 1;
+  if (start < 0 || end < start || end >= metadata.size) throw new Error("INVALID_RANGE");
+  const nodeStream = createReadStream(filePath, { start, end });
+  return {
+    stream: Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>,
+    size: end - start + 1,
+    totalSize: metadata.size,
+  };
 }

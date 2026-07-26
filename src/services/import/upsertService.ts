@@ -5,14 +5,12 @@ import { ParseResult } from "./excelParser";
 import { getHiddenFieldDefaults } from "@/lib/student/profileDefaults";
 import { getOfficialProfilePrefill } from "@/lib/student/officialProfilePrefill";
 import { ADMISSION_FIELD_CODES } from "@/lib/student/admissionProfile";
-import { getCommunesByProvinceName } from "@/lib/catalogs/administrative";
+import { blindIndex } from "@/lib/encryption";
+import { nameSearchTokens } from "@/lib/searchIndexes";
 
 type ImportOptions = { idempotent?: boolean };
 
 function profileSeedFields(row: ParseResult["rows"][number]) {
-  const residenceInCaMau = getCommunesByProvinceName("Cà Mau").some(
-    (commune) => commune.name === row.residence_source,
-  );
   const official = getOfficialProfilePrefill({
     cccd: row.cccd_source,
     fullName: row.full_name_source,
@@ -57,7 +55,6 @@ function profileSeedFields(row: ParseResult["rows"][number]) {
   ];
   return [
     ...official,
-    ...(residenceInCaMau ? [{ fieldCode: "L", value: "Cà Mau" }] : []),
     ...admission,
   ].filter((field) => field.value !== "");
 }
@@ -66,9 +63,10 @@ async function createMissingProfileValues(
   transaction: Prisma.TransactionClient,
   studentId: string,
   row: ParseResult["rows"][number],
+  admissionDate: Date,
 ) {
   await transaction.studentProfileValue.createMany({
-    data: profileSeedRows(studentId, row),
+    data: profileSeedRows(studentId, row, admissionDate),
     skipDuplicates: true,
   });
 }
@@ -76,13 +74,14 @@ async function createMissingProfileValues(
 function profileSeedRows(
   studentId: string,
   row: ParseResult["rows"][number],
+  admissionDate: Date,
 ) {
   const fields = [
     ...profileSeedFields(row).map((field) => ({
       field_code: field.fieldCode,
       value: field.value,
     })),
-    ...getHiddenFieldDefaults({ fullName: row.full_name_source }).filter(
+    ...getHiddenFieldDefaults({ fullName: row.full_name_source, admissionDate }).filter(
       (field) => field.value !== "",
     ),
   ];
@@ -98,11 +97,16 @@ function profileSeedRows(
 export async function upsertImportedData(
   parseResult: ParseResult,
   adminUsername: string,
+  campaignId: string,
   options: ImportOptions = {},
 ) {
+  const campaign = await prisma.admissionCampaign.findUniqueOrThrow({
+    where: { id: campaignId },
+    select: { admission_date: true },
+  });
   // Check if batch already exists by checksum
   const existingBatch = await prisma.importBatch.findFirst({
-    where: { checksum: parseResult.checksum },
+    where: { campaign_id: campaignId, checksum: parseResult.checksum },
   });
 
   if (existingBatch) {
@@ -133,7 +137,7 @@ export async function upsertImportedData(
           const missingValues = admissionRecords.flatMap((record) => {
             const row = rowByNumber.get(record.source_row_number);
             if (!record.student || !row) return [];
-            return profileSeedRows(record.student.id, row).filter(
+            return profileSeedRows(record.student.id, row, campaign.admission_date).filter(
               (value) =>
                 !existingKeys.has(
                   `${value.student_id}\u0000${value.field_code}`,
@@ -154,12 +158,35 @@ export async function upsertImportedData(
     throw new Error("File này đã được import trước đó.");
   }
 
+  const identifiers = parseResult.rows
+    .filter((row) => row.validation_errors.length === 0 && row.cccd_source !== "0")
+    .map((row) => ({
+      row: row.source_row_number,
+      cccd: row.cccd_source,
+      lookup: blindIndex(row.cccd_source, "current_cccd_lookup:v1"),
+    }));
+  const conflicts = await prisma.student.findMany({
+    where: {
+      campaign_id: campaignId,
+      current_cccd_lookup: { in: identifiers.map((item) => item.lookup) },
+    },
+    select: { current_cccd_lookup: true },
+  });
+  const conflictLookups = new Set(conflicts.map((item) => item.current_cccd_lookup));
+  const conflictRows = identifiers.filter((item) => conflictLookups.has(item.lookup));
+  if (conflictRows.length > 0) {
+    const error = new Error(`CCCD đã tồn tại trong đợt tuyển sinh tại dòng: ${conflictRows.map((item) => item.row).join(", ")}`);
+    Object.assign(error, { code: "IMPORT_CCCD_CONFLICT", conflicts: conflictRows.map(({ row }) => ({ row })) });
+    throw error;
+  }
+
   // Run in transaction
   const batchId = await prisma.$transaction(
     async (tx) => {
       // 1. Create ImportBatch
       const batch = await tx.importBatch.create({
         data: {
+          campaign_id: campaignId,
           original_filename: parseResult.originalFileName,
           checksum: parseResult.checksum,
           sheet_name: parseResult.sheetName,
@@ -203,6 +230,16 @@ export async function upsertImportedData(
             note_source: row.note_source,
             source_json: row.source_json,
             data_quality_flags: row.data_quality_flags ?? Prisma.JsonNull,
+            full_name_search_tokens: nameSearchTokens(row.full_name_source),
+            middle_school_lookup: row.middle_school_source
+              ? blindIndex(row.middle_school_source.toLocaleLowerCase("vi-VN"), "middle_school:v1")
+              : null,
+            middle_school_commune_lookup: row.middle_school_commune_source
+              ? blindIndex(row.middle_school_commune_source.toLocaleLowerCase("vi-VN"), "middle_school_commune:v1")
+              : null,
+            ethnicity_lookup: row.ethnicity_source
+              ? blindIndex(row.ethnicity_source.toLocaleLowerCase("vi-VN"), "ethnicity:v1")
+              : null,
           },
         });
 
@@ -216,17 +253,17 @@ export async function upsertImportedData(
             ? StudentStatus.NEEDS_CCCD_CORRECTION
             : StudentStatus.IMPORTED;
 
-        const student = studentIdentifier
-          ? await tx.student.upsert({
-              where: { current_cccd: studentIdentifier },
-              update: { current_dob: row.dob_source, admission_record_id: admissionRecord.id },
-              create: { current_cccd: studentIdentifier, current_dob: row.dob_source, admission_record_id: admissionRecord.id, status },
-            })
-          : await tx.student.create({
-              data: { current_cccd: null, current_dob: row.dob_source, admission_record_id: admissionRecord.id, status },
-            });
+        const student = await tx.student.create({
+          data: {
+            campaign_id: campaignId,
+            current_cccd: studentIdentifier,
+            current_dob: row.dob_source,
+            admission_record_id: admissionRecord.id,
+            status,
+          },
+        });
 
-        await createMissingProfileValues(tx, student.id, row);
+        await createMissingProfileValues(tx, student.id, row, campaign.admission_date);
       }
       return batch.id;
     },

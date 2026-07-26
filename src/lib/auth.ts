@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
 const JWT_ISSUER = "vvk-admission";
@@ -138,7 +139,7 @@ export async function clearSession(
         });
       }
     } catch (error) {
-      console.error("Unable to revoke session", error);
+      logger.error("Unable to revoke session", { error });
     }
   }
   cookieStore.delete(cookieName);

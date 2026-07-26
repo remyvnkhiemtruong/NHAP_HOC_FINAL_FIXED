@@ -24,26 +24,49 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       include: {
         admission_record: true,
         profile_values: true,
-        files: { include: { qr_scan_results: true, ocr_results: true, photo_scan_results: true } },
+        files: { where: { is_current: true }, include: { qr_scan_results: true, ocr_results: true, photo_scan_results: true } },
         addresses: true,
         family_members: true,
         policy_records: true,
         disabilities: true,
+        revision_requests: {
+          include: { items: true },
+          orderBy: { created_at: "desc" },
+          take: 20,
+        },
       },
     });
     if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
 
     const fileIds = student.files.map((file) => file.id);
-    const auditLogs = await prisma.auditLog.findMany({
-      where: { OR: [{ entity_id: id }, ...(fileIds.length ? [{ entity_id: { in: fileIds } }] : [])] },
-      orderBy: { created_at: "desc" },
-      take: 200,
-    });
+    const [auditLogs, decisionHistory] = await Promise.all([
+      prisma.auditLog.findMany({
+        where: { OR: [{ entity_id: id }, ...(fileIds.length ? [{ entity_id: { in: fileIds } }] : [])] },
+        orderBy: { created_at: "desc" },
+        take: 200,
+      }),
+      prisma.reviewDecision.findMany({
+        where: { student_id: id },
+        orderBy: { created_at: "desc" },
+        take: 200,
+      }),
+    ]);
     const diffs = student.profile_values
       .filter((value) => value.change_status === "PROPOSED")
       .map((value) => ({ id: value.id, field_code: value.field_code, source_value: value.source_value, proposed_value: value.proposed_value, updated_at: value.updated_at }));
 
-    let profile_values = student.profile_values;
+    type ProfileValueResponse =
+      | (typeof student.profile_values)[number]
+      | {
+          id: string;
+          field_code: string;
+          source_value: null;
+          proposed_value: string;
+          change_status: "PREVIEW";
+          updated_at: Date;
+          student_id: string;
+        };
+    let profile_values: ProfileValueResponse[] = student.profile_values;
     if (profile_values.length === 0) {
       const prefill = getOfficialProfilePrefill({
         cccd: student.admission_record.cccd_source,
@@ -71,7 +94,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         change_status: "PREVIEW",
         updated_at: new Date(),
         student_id: student.id,
-      })) as any;
+      }));
     }
 
     return NextResponse.json({
@@ -86,6 +109,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       policy_records: student.policy_records,
       disabilities: student.disabilities,
       auditLogs,
+      currentDecisions: student.profile_values.filter((value) =>
+        ["ACCEPTED", "REJECTED", "ADMIN_EDITED"].includes(value.change_status),
+      ),
+      decisionHistory,
+      revisionRequests: student.revision_requests,
     });
   } catch (error) {
     logServerError("Get review details error", error, requestIdentifier);

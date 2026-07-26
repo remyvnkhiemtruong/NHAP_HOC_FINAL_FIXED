@@ -20,7 +20,7 @@ describe('export rules', () => {
     expect(exportCccd(profileValues, currentCccd)).toBe(expected);
   });
   it('selects only the current file version', () => {
-    const selected = selectCurrentFiles([{ category: 'PHOTO_4X6', storage_key: 'old', original_name: 'old', mime: 'image/jpeg', status: 'UPLOADED', current_version: 1 }, { category: 'PHOTO_4X6', storage_key: 'new', original_name: 'new', mime: 'image/jpeg', status: 'UPLOADED', current_version: 2 }]);
+    const selected = selectCurrentFiles([{ category: 'PHOTO_4X6', storage_key: 'old', original_name: 'old', mime: 'image/jpeg', status: 'ADMIN_APPROVED', current_version: 1 }, { category: 'PHOTO_4X6', storage_key: 'new', original_name: 'new', mime: 'image/jpeg', status: 'ADMIN_APPROVED', current_version: 2 }]);
     expect(selected.get('PHOTO_4X6')?.storage_key).toBe('new');
   });
   it('uses the mandated ZIP paths and reports invalid ZIP inputs', () => {

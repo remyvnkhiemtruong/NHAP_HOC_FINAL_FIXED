@@ -16,11 +16,6 @@ export default function ReviewListPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  // When view or query changes, reset to page 1
-  useEffect(() => {
-    setPage(1);
-  }, [view, query]);
-
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -44,6 +39,7 @@ export default function ReviewListPage() {
 
   function submit(e: FormEvent) {
     e.preventDefault();
+    setPage(1);
     setQuery(search.trim());
   }
 
@@ -65,17 +61,16 @@ export default function ReviewListPage() {
                 {[["pending", "Chờ xử lý"], ["changes", "Có thay đổi"], ["missing-files", "Thiếu ảnh"], ["approved", "Đã duyệt"], ["all", "Tất cả"]].map(([value, label]) => (
                   <button 
                     key={value} 
-                    className={`button ${view === value ? 'button--primary' : 'button--secondary'}`}
-                    style={{ padding: '8px 16px' }}
-                    onClick={() => setView(value)}
+                    className={`button button--compact ${view === value ? 'button--primary' : 'button--secondary'}`}
+                    onClick={() => { setPage(1); setView(value); }}
                   >
                     {label}
                   </button>
                 ))}
               </div>
               <form className="search-box" onSubmit={submit}>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>🔍</span>
+                <div className="review-search">
+                  <span className="review-search__icon">🔍</span>
                   <input 
                     value={search} 
                     onChange={e => setSearch(e.target.value)} 
@@ -85,7 +80,7 @@ export default function ReviewListPage() {
                 <button className="button button--primary">Tìm kiếm</button>
               </form>
             </div>
-            {error && <div className="notice notice--error" style={{marginBottom: '20px'}}>{error}</div>}
+            {error && <div className="notice notice--error mb-20">{error}</div>}
             
             <div className="table-wrap">
               <table>
@@ -103,14 +98,14 @@ export default function ReviewListPage() {
                   {loading ? <tr><td colSpan={6} className="empty-cell">Đang tải dữ liệu…</td></tr> : items.length ? items.map(item => (
                     <tr key={item.id}>
                       <td>
-                        <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-                          <div style={{width: '40px', height: '40px', borderRadius: '50%', background: 'var(--sky)', color: 'var(--blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '16px'}}>
+                        <div className="student-cell">
+                          <div className="student-avatar">
                             {item.name.charAt(0)}
                           </div>
                           <div>
                             <strong>{item.name}</strong>
                             <small>
-                              <span style={{display: 'inline-block', width: '14px', height: '14px', background: 'var(--line)', borderRadius: '3px', textAlign: 'center', lineHeight: '14px', fontSize: '10px', fontWeight: 'bold'}}>#</span>
+                              <span className="student-id-icon">#</span>
                               {item.cccd || "Chưa cập nhật"}
                             </small>
                           </div>
@@ -124,8 +119,8 @@ export default function ReviewListPage() {
                           {item.warnings.length ? item.warnings.map(w => <span key={w} title={w}>⚠️ {w}</span>) : <span className="ok-text">✓ Tốt</span>}
                         </div>
                       </td>
-                      <td style={{textAlign: 'right'}}>
-                        <Link className="button button--primary" style={{ padding: '8px 16px', fontSize: '14px' }} href={`/admin/review/${item.id}`}>
+                      <td className="text-right">
+                        <Link className="button button--primary button--table" href={`/admin/review/${item.id}`}>
                           Mở hồ sơ
                         </Link>
                       </td>

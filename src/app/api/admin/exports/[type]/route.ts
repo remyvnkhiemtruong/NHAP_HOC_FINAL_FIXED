@@ -3,14 +3,17 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { EXPORTABLE_STATUSES } from "@/lib/server/exportService";
+import { loadApprovedStudents } from "@/lib/server/exportService";
+import { buildExportContentManifest } from "@/lib/server/exportManifest";
 import { enqueueExportJob } from "@/services/queue/exportQueue";
+import { activeCampaign } from "@/lib/campaign";
+import { logger } from "@/lib/logger";
 
 const paramsSchema = z.object({
   type: z.enum(["student-pdf", "school-excel", "bulk-student-pdf-zip", "photo-4x6-zip", "cccd-zip", "scan-report-csv", "scan-report-pdf"]),
 });
 const bodySchema = z
-  .object({ studentId: z.string().cuid().optional() })
+  .object({ studentId: z.string().cuid().optional(), campaignId: z.string().min(1).max(128).optional() })
   .strict();
 const typeMap = {
   "student-pdf": "STUDENT_PDF",
@@ -47,11 +50,23 @@ export async function POST(
       { status: 400 },
     );
   const type = parsedParams.data.type;
+  const campaignId = parsedBody.data.campaignId ?? (await activeCampaign()).id;
   if ((type === "student-pdf") !== Boolean(parsedBody.data.studentId))
     return NextResponse.json(
       { error: "studentId is required only for student PDF" },
       { status: 400 },
     );
+  const cohortStudents = await loadApprovedStudents(
+    parsedBody.data.studentId,
+    campaignId,
+  );
+  const cohortStudentIds = cohortStudents
+    .map((student) => student.id)
+    .sort((left, right) => left.localeCompare(right));
+  const cohortHash = createHash("sha256")
+    .update(cohortStudentIds.join("\n"))
+    .digest("hex");
+  const content = buildExportContentManifest(campaignId, cohortStudents);
   const dbType = typeMap[type];
   if (
     type === "school-excel" ||
@@ -61,10 +76,7 @@ export async function POST(
     type === "scan-report-csv" ||
     type === "scan-report-pdf"
   ) {
-    const eligibleStudentCount = await prisma.student.count({
-      where: { status: { in: [...EXPORTABLE_STATUSES] } },
-    });
-    if (eligibleStudentCount === 0) {
+    if (cohortStudentIds.length === 0) {
       const subject =
         type === "school-excel"
           ? "Excel export"
@@ -83,8 +95,14 @@ export async function POST(
       );
     }
   }
+  if (type === "student-pdf" && cohortStudentIds.length !== 1) {
+    return NextResponse.json(
+      { error: "Không tìm thấy học sinh đủ điều kiện xuất PDF." },
+      { status: 422 },
+    );
+  }
   const dedupeKey = createHash("sha256")
-    .update(`${dbType}:${parsedBody.data.studentId ?? "school"}`)
+    .update(`${campaignId}:${dbType}:${parsedBody.data.studentId ?? "school"}:${content.hash}`)
     .digest("hex");
   let exportJob: { id: string; status: string; progress: number };
   try {
@@ -95,11 +113,16 @@ export async function POST(
       if (existing) return { exportJob: existing };
       const created = await tx.exportJob.create({
         data: {
+          campaign_id: campaignId,
           type: dbType,
           subject_student_id: parsedBody.data.studentId,
-          payload_json: parsedBody.data,
+          payload_json: { ...parsedBody.data, campaignId, cohortStudentIds },
           active_dedupe_key: dedupeKey,
           created_by: session.userId,
+          cohort_hash: cohortHash,
+          content_manifest: content.manifest,
+          content_manifest_hash: content.hash,
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1_000),
         },
       });
       await tx.auditLog.create({
@@ -126,17 +149,14 @@ export async function POST(
       if (existing) {
         exportJob = existing;
       } else {
-        console.error(
-          "Create export job dedupe conflict without active job",
-          error,
-        );
+        logger.error("Create export job dedupe conflict without active job", { error });
         return NextResponse.json(
           { error: "Unable to create export job" },
           { status: 500 },
         );
       }
     } else {
-      console.error("Create export job error", error);
+      logger.error("Create export job error", { error });
       return NextResponse.json(
         { error: "Unable to create export job" },
         { status: 500 },
@@ -148,7 +168,7 @@ export async function POST(
     try {
       await enqueueExportJob(exportJob.id, type);
     } catch (error) {
-      console.error("Enqueue export job error", error);
+      logger.error("Enqueue export job error", { error });
       await prisma.auditLog
         .create({
           data: {
@@ -164,7 +184,7 @@ export async function POST(
           },
         })
         .catch((auditError: unknown) =>
-          console.error("Audit export queue error", auditError),
+          logger.error("Audit export queue error", { error: auditError }),
         );
       return NextResponse.json(
         {

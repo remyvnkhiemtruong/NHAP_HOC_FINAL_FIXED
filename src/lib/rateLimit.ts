@@ -1,4 +1,5 @@
 import IORedis from "ioredis";
+import { logger } from "@/lib/logger";
 
 type RateLimitResult = {
   success: boolean;
@@ -9,16 +10,23 @@ type RateLimitResult = {
 type MemoryBucket = { count: number; resetAt: number };
 const memoryBuckets = new Map<string, MemoryBucket>();
 let redisClient: IORedis | null | undefined;
+let redisConnectPromise: Promise<void> | null = null;
 
 function getRedis(): IORedis | null {
   if (redisClient !== undefined) return redisClient;
   if (process.env.RATE_LIMIT_BACKEND === "memory" || process.env.NODE_ENV === "test") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Production cannot use the in-memory rate limiter");
+    }
     redisClient = null;
     return null;
   }
 
   const redisUrl = process.env.REDIS_URL;
   if (!redisUrl) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Production requires REDIS_URL for rate limiting");
+    }
     redisClient = null;
     return null;
   }
@@ -31,9 +39,27 @@ function getRedis(): IORedis | null {
     retryStrategy: () => null,
   });
   redisClient.on("error", (error) => {
-    console.error("Rate-limit Redis error", error.message);
+    logger.error("Rate-limit Redis error", { error });
   });
   return redisClient;
+}
+
+export async function ensureRedisConnected(redis: IORedis): Promise<void> {
+  if (redis.status === "ready") return;
+  if (redisConnectPromise) {
+    await redisConnectPromise;
+    return;
+  }
+  if (redis.status !== "wait" && redis.status !== "connecting") {
+    throw new Error(`Redis rate-limit client is not connectable (${redis.status})`);
+  }
+  redisConnectPromise = redis
+    .connect()
+    .then(() => undefined)
+    .finally(() => {
+      redisConnectPromise = null;
+    });
+  await redisConnectPromise;
 }
 
 function memoryRateLimit(key: string, limit: number, windowMs: number): RateLimitResult {
@@ -66,7 +92,7 @@ export async function rateLimit(
   if (!redis) return memoryRateLimit(key, limit, windowMs);
 
   try {
-    if (redis.status === "wait") await redis.connect();
+    await ensureRedisConnected(redis);
     const transaction = redis.multi();
     transaction.incr(key);
     transaction.pttl(key);
@@ -83,7 +109,11 @@ export async function rateLimit(
       resetAt: Date.now() + ttl,
     };
   } catch (error) {
-    console.error("Rate limit backend unavailable; using in-memory fallback", error);
+    logger.error("Rate limit backend unavailable", { error });
+    if (process.env.NODE_ENV === "production") {
+      return { success: false, remaining: 0, resetAt: Date.now() + windowMs };
+    }
+    logger.warn("Using in-memory rate limit fallback outside production");
     return memoryRateLimit(key, limit, windowMs);
   }
 }

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const xlsx = require('xlsx');
 const fs = require('fs');
 
@@ -56,4 +57,5 @@ if (refSheet[0]) {
 }
 
 fs.writeFileSync('public/smas-data.json', JSON.stringify(result));
+/* Generated catalog file. */
 console.log('Done generating smas-data.json. Addresses loaded from the nationwide file with districts (cũ), other dropdowns from SMAS.');

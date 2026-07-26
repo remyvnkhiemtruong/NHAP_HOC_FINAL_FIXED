@@ -9,6 +9,7 @@ export default function AppHeader({ mode = "public" }: { mode?: "public" | "stud
   const router = useRouter();
   const adminLinks = [
     ["/admin", "Tổng quan"],
+    ["/admin/campaigns", "Đợt nhập học"],
     ["/admin/import", "Nhập dữ liệu"],
     ["/admin/review", "Duyệt hồ sơ"],
     ["/admin/exports", "Xuất báo cáo"],
@@ -22,7 +23,7 @@ export default function AppHeader({ mode = "public" }: { mode?: "public" | "stud
 
   return (
     <header className="app-header">
-      <div className="app-header__inner" style={{ padding: "0 40px", width: "100%", justifyContent: "space-between" }}>
+      <div className="app-header__inner app-header__inner--wide">
         <SchoolBrand compact />
         {mode === "admin" ? (
           <nav className="main-nav" aria-label="Quản trị">

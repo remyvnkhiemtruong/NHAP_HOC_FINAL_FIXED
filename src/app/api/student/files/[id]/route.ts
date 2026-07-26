@@ -20,7 +20,9 @@ export async function GET(
       getSession("admin_session"),
     ]);
     if (!studentSession && !adminSession) return new NextResponse("Unauthorized", { status: 401 });
-    const fileRecord = await prisma.fileRecord.findUnique({ where: { id: fileId } });
+    const fileRecord = await prisma.fileRecord.findFirst({
+      where: { id: fileId, ...(studentSession ? { is_current: true } : {}) },
+    });
     if (!fileRecord) return new NextResponse("File not found", { status: 404 });
     if (!adminSession && studentSession?.studentId !== fileRecord.student_id) {
       return new NextResponse("Forbidden", { status: 403 });

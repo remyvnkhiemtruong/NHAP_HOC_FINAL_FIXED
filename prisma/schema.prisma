@@ -11,6 +11,12 @@ enum Role {
   ADMIN
 }
 
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+
 enum StudentStatus {
   IMPORTED
   DRAFT
@@ -33,6 +39,7 @@ enum ChangeStatus {
 
 enum FileStatus {
   MISSING
+  PROCESSING
   UPLOADED
   AUTO_VALID
   AUTO_WARNING
@@ -72,6 +79,25 @@ enum ExportJobStatus {
   FAILED
 }
 
+enum ProcessingJobType {
+  IMPORT_XLSX
+  IMAGE_PROCESS
+  QR_SCAN
+  CLEANUP
+}
+
+enum ProcessingJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum RevisionTargetType {
+  PROFILE_FIELD
+  FILE
+}
+
 model AdminUser {
   id            String   @id @default(cuid())
   username      String   @unique
@@ -80,14 +106,39 @@ model AdminUser {
   active        Boolean  @default(true)
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
-  
+
   admin_sessions AdminSession[]
+}
+
+model AdmissionCampaign {
+  id                String         @id @default(cuid())
+  code              String         @unique
+  name              String
+  status            CampaignStatus @default(DRAFT)
+  school_year_start Int
+  school_year_end   Int
+  admission_date    DateTime
+  school_name       String
+  school_code       String
+  template_version  String
+  score_rules       Json
+  created_at        DateTime       @default(now())
+  updated_at        DateTime       @updatedAt
+
+  import_batches  ImportBatch[]
+  students        Student[]
+  export_jobs     ExportJob[]
+  processing_jobs ProcessingJob[]
+  export_batches  ExportBatch[]
+
+  @@index([status])
 }
 
 model ImportBatch {
   id                String            @id @default(cuid())
+  campaign_id       String
   original_filename String
-  checksum          String            @unique
+  checksum          String
   sheet_name        String
   total_rows        Int
   valid_rows        Int
@@ -95,11 +146,15 @@ model ImportBatch {
   error_rows        Int
   imported_by       String
   created_at        DateTime          @default(now())
+  campaign          AdmissionCampaign @relation(fields: [campaign_id], references: [id], onDelete: Restrict)
   admission_records AdmissionRecord[]
+
+  @@unique([campaign_id, checksum])
+  @@index([campaign_id, created_at])
 }
 
 model AdmissionRecord {
-  id                           String  @id @default(cuid())
+  id                           String   @id @default(cuid())
   import_batch_id              String
   source_row_number            Int
   source_tt                    String
@@ -115,37 +170,51 @@ model AdmissionRecord {
   note_source                  String?
   source_json                  Json
   data_quality_flags           Json?
+  cccd_source_lookup           String?
+  full_name_search_tokens      String[]
+  middle_school_lookup         String?
+  middle_school_commune_lookup String?
+  ethnicity_lookup             String?
 
   import_batch ImportBatch @relation(fields: [import_batch_id], references: [id])
   student      Student?    @relation("AdmissionToStudent")
 
-  @@index([cccd_source])
-  @@index([full_name_source])
   @@unique([import_batch_id, source_row_number])
+  @@index([cccd_source_lookup])
+  @@index([middle_school_lookup])
+  @@index([middle_school_commune_lookup])
+  @@index([ethnicity_lookup])
 }
 
 model Student {
   id                  String        @id @default(cuid())
+  campaign_id         String
   admission_record_id String        @unique
-  current_cccd        String?       @unique
+  current_cccd        String?
+  current_cccd_lookup String?
   current_dob         String
   status              StudentStatus @default(IMPORTED)
   imported_at         DateTime      @default(now())
   approved_at         DateTime?
   locked_at           DateTime?
 
-  admission_record AdmissionRecord         @relation("AdmissionToStudent", fields: [admission_record_id], references: [id])
-  profile_values   StudentProfileValue[]
-  profile_versions StudentProfileVersion[]
-  access_sessions  StudentAccessSession[]
-  addresses        Address[]
-  family_members   FamilyMember[]
-  policy_records   PolicyRecord[]
-  disabilities     Disability[]
-  files            FileRecord[]
+  campaign              AdmissionCampaign       @relation(fields: [campaign_id], references: [id], onDelete: Restrict)
+  admission_record      AdmissionRecord         @relation("AdmissionToStudent", fields: [admission_record_id], references: [id])
+  profile_values        StudentProfileValue[]
+  profile_versions      StudentProfileVersion[]
+  access_sessions       StudentAccessSession[]
+  addresses             Address[]
+  family_members        FamilyMember[]
+  policy_records        PolicyRecord[]
+  disabilities          Disability[]
+  files                 FileRecord[]
+  processing_jobs       ProcessingJob[]
+  export_batch_students ExportBatchStudent[]
+  revision_requests     RevisionRequest[]
+  review_decisions      ReviewDecision[]
 
-  @@index([status])
-  @@index([current_cccd, current_dob])
+  @@unique([campaign_id, current_cccd_lookup])
+  @@index([campaign_id, status])
 }
 
 model StudentProfileValue {
@@ -158,7 +227,9 @@ model StudentProfileValue {
   change_status  ChangeStatus @default(UNCHANGED)
   updated_at     DateTime     @updatedAt
 
-  student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  student          Student          @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  revision_items   RevisionItem[]
+  review_decisions ReviewDecision[]
 
   @@unique([student_id, field_code])
 }
@@ -171,7 +242,8 @@ model StudentProfileVersion {
   submitted_at   DateTime  @default(now())
   approved_at    DateTime?
 
-  student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  student           Student           @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  revision_requests RevisionRequest[]
 
   @@unique([student_id, version_number])
 }
@@ -188,7 +260,6 @@ model AdminSession {
 
   admin AdminUser @relation(fields: [admin_id], references: [id], onDelete: Cascade)
 
-  @@index([token_hash])
   @@index([admin_id])
 }
 
@@ -204,7 +275,6 @@ model StudentAccessSession {
 
   student Student @relation(fields: [student_id], references: [id], onDelete: Cascade)
 
-  @@index([token_hash])
   @@index([student_id])
 }
 
@@ -279,32 +349,42 @@ model FileRecord {
   height          Int?
   current_version Int          @default(1)
   status          FileStatus   @default(UPLOADED)
+  is_current      Boolean      @default(true)
+  superseded_at   DateTime?
+  processed_at    DateTime?
 
-  created_by      String?
-  decision_by     String?
-  decision_at     DateTime?
-  quarantine      Boolean      @default(false)
+  created_by  String?
+  decision_by String?
+  decision_at DateTime?
+  quarantine  Boolean   @default(false)
 
   student            Student           @relation(fields: [student_id], references: [id], onDelete: Cascade)
   qr_scan_results    QrScanResult[]
   ocr_results        OcrResult[]
   photo_scan_results PhotoScanResult[]
+  processing_jobs    ProcessingJob[]
+  revision_items     RevisionItem[]
+  review_decisions   ReviewDecision[]
 
-  @@index([status])
-  @@index([category])
   @@unique([student_id, category, current_version])
+  @@index([status])
+  @@index([student_id, category, is_current])
 }
 
 model QrScanResult {
-  id          String   @id @default(cuid())
-  file_id     String
-  card_side   String // FRONT, BACK
-  raw_payload String?
-  parsed_json Json?
-  success     Boolean
-  created_at  DateTime @default(now())
+  id            String   @id @default(cuid())
+  file_id       String
+  card_side     String // FRONT, BACK
+  engine        String
+  file_checksum String
+  file_version  Int
+  parsed_json   Json?
+  success       Boolean
+  created_at    DateTime @default(now())
 
   file FileRecord @relation(fields: [file_id], references: [id], onDelete: Cascade)
+
+  @@unique([file_id, engine, file_version, file_checksum])
 }
 
 model OcrResult {
@@ -331,22 +411,160 @@ model PhotoScanResult {
 }
 
 model ExportJob {
-  id               String          @id @default(cuid())
-  type             ExportJobType
-  status           ExportJobStatus @default(PENDING)
-  progress         Int             @default(0)
+  id                 String          @id @default(cuid())
+  type               ExportJobType
+  campaign_id        String
+  status             ExportJobStatus @default(PENDING)
+  progress           Int             @default(0)
   subject_student_id String?
-  payload_json     Json?
-  active_dedupe_key String?         @unique
-  output_key       String?
-  output_filename  String?
-  output_checksum  String?
-  error_report_key String?
-  created_by       String?
-  created_at       DateTime        @default(now())
-  completed_at     DateTime?
+  payload_json       Json?
+  active_dedupe_key  String?         @unique
+  output_key         String?
+  output_filename    String?
+  output_checksum    String?
+  error_report_key   String?
+  created_by         String?
+  created_at         DateTime        @default(now())
+  completed_at       DateTime?
+  cohort_hash        String?
+  content_manifest   Json?
+  content_manifest_hash String?
+  expires_at         DateTime?
+
+  campaign          AdmissionCampaign    @relation(fields: [campaign_id], references: [id], onDelete: Restrict)
+  official_artifact ExportBatchArtifact?
 
   @@index([status])
+  @@index([campaign_id, status])
+  @@index([content_manifest_hash])
+}
+
+model ProcessingJob {
+  id                 String              @id @default(cuid())
+  type               ProcessingJobType
+  status             ProcessingJobStatus @default(PENDING)
+  campaign_id        String?
+  subject_student_id String?
+  subject_file_id    String?
+  owner_type         String
+  owner_id           String
+  input_key          String?
+  input_filename     String?
+  input_checksum     String?
+  payload_json       Json?
+  result_json        Json?
+  error_code         String?
+  error_message      String?
+  progress           Int                 @default(0)
+  attempts           Int                 @default(0)
+  active_dedupe_key  String?             @unique
+  expires_at         DateTime?
+  created_at         DateTime            @default(now())
+  started_at         DateTime?
+  completed_at       DateTime?
+
+  campaign AdmissionCampaign? @relation(fields: [campaign_id], references: [id], onDelete: Cascade)
+  student  Student?           @relation(fields: [subject_student_id], references: [id], onDelete: Cascade)
+  file     FileRecord?        @relation(fields: [subject_file_id], references: [id], onDelete: Cascade)
+
+  @@index([status, type])
+  @@index([owner_type, owner_id, created_at])
+}
+
+model ExportBatch {
+  id                String   @id @default(cuid())
+  campaign_id       String
+  cohort_hash       String
+  snapshot_checksum String
+  created_by        String
+  note              String?
+  legal_hold        Boolean  @default(false)
+  created_at        DateTime @default(now())
+
+  campaign  AdmissionCampaign     @relation(fields: [campaign_id], references: [id], onDelete: Restrict)
+  artifacts ExportBatchArtifact[]
+  students  ExportBatchStudent[]
+
+  @@index([campaign_id, created_at])
+}
+
+model ExportBatchArtifact {
+  id              String @id @default(cuid())
+  export_batch_id String
+  export_job_id   String @unique
+  output_checksum String
+
+  export_batch ExportBatch @relation(fields: [export_batch_id], references: [id], onDelete: Restrict)
+  export_job   ExportJob   @relation(fields: [export_job_id], references: [id], onDelete: Restrict)
+}
+
+model ExportBatchStudent {
+  id                String   @id @default(cuid())
+  export_batch_id   String
+  student_id        String
+  snapshot_json     String
+  snapshot_checksum String
+  exported_at       DateTime @default(now())
+
+  export_batch ExportBatch @relation(fields: [export_batch_id], references: [id], onDelete: Restrict)
+  student      Student     @relation(fields: [student_id], references: [id], onDelete: Restrict)
+
+  @@unique([export_batch_id, student_id])
+  @@index([student_id, exported_at])
+}
+
+model RevisionRequest {
+  id                 String    @id @default(cuid())
+  student_id         String
+  profile_version_id String?
+  requested_by       String
+  general_reason     String?
+  due_at             DateTime?
+  read_at            DateTime?
+  closed_at          DateTime?
+  created_at         DateTime  @default(now())
+
+  student         Student                @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  profile_version StudentProfileVersion? @relation(fields: [profile_version_id], references: [id], onDelete: SetNull)
+  items           RevisionItem[]
+
+  @@index([student_id, closed_at, created_at])
+}
+
+model RevisionItem {
+  id                  String             @id @default(cuid())
+  revision_request_id String
+  target_type         RevisionTargetType
+  profile_value_id    String?
+  file_id             String?
+  reason              String
+  resolved_at         DateTime?
+
+  revision_request RevisionRequest      @relation(fields: [revision_request_id], references: [id], onDelete: Cascade)
+  profile_value    StudentProfileValue? @relation(fields: [profile_value_id], references: [id], onDelete: SetNull)
+  file             FileRecord?          @relation(fields: [file_id], references: [id], onDelete: SetNull)
+
+  @@index([revision_request_id, resolved_at])
+}
+
+model ReviewDecision {
+  id               String   @id @default(cuid())
+  student_id       String
+  profile_value_id String?
+  file_id          String?
+  decision         String
+  value_before     String?
+  value_after      String?
+  reason           String?
+  decided_by       String
+  profile_version  Int?
+  created_at       DateTime @default(now())
+
+  student       Student              @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  profile_value StudentProfileValue? @relation(fields: [profile_value_id], references: [id], onDelete: SetNull)
+  file          FileRecord?          @relation(fields: [file_id], references: [id], onDelete: SetNull)
+
+  @@index([student_id, created_at])
 }
 
 model AuditLog {

@@ -3,6 +3,7 @@ import path from "path";
 import { prisma } from "../src/lib/prisma";
 import { parseExcelBuffer } from "../src/services/import/excelParser";
 import { upsertImportedData } from "../src/services/import/upsertService";
+import { ensureDefaultCampaign } from "../src/lib/campaign";
 
 async function main() {
   const filePath = path.join(process.cwd(), "00_INPUTS/01_DU_LIEU_CHINH_THUC_TRUNG_TUYEN.xlsx");
@@ -18,7 +19,8 @@ async function main() {
   console.log(`Parsed ${parsed.totalRows} rows, ${parsed.validRows} valid, ${parsed.warningRows} warnings, ${parsed.errorRows} errors.`);
   console.log("Importing to database...");
   
-  const result = await upsertImportedData(parsed, "vvk_sysadmin", { idempotent: true });
+  const campaign = await ensureDefaultCampaign();
+  const result = await upsertImportedData(parsed, "vvk_sysadmin", campaign.id, { idempotent: true });
   console.log("Import completed!", result);
 }
 

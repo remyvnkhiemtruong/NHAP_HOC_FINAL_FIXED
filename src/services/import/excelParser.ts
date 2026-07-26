@@ -1,5 +1,7 @@
 import crypto from "crypto";
 import * as XLSX from "xlsx";
+import Decimal from "decimal.js";
+import type { ScoreRules } from "@/lib/campaign";
 
 export interface ParsedAdmissionRow {
   source_row_number: number;
@@ -36,6 +38,12 @@ export interface ParseResult {
 
 const REQUIRED_SHEET = "Danh sách trúng tuyển";
 const MAX_IMPORT_ROWS = 5_000;
+const DEFAULT_SCORE_RULES: ScoreRules = {
+  fourYearAverage: { min: 0, max: 40, precision: 2 },
+  fourYearConduct: { min: 0, max: 40, precision: 2 },
+  priorityScore: { min: 0, max: 2, precision: 2 },
+  encouragementScore: { min: 0, max: 2, precision: 2 },
+};
 
 function parseCellString(cell: XLSX.CellObject | undefined): string {
   if (!cell || cell.v === undefined || cell.v === null) return "";
@@ -82,7 +90,15 @@ function sourceJson(sheet: XLSX.WorkSheet, row: number): Record<string, string> 
   ]));
 }
 
-export async function parseExcelBuffer(buffer: Buffer, originalFileName: string): Promise<ParseResult> {
+function decimalPlaces(value: number): number {
+  return new Decimal(value).decimalPlaces();
+}
+
+export async function parseExcelBuffer(
+  buffer: Buffer,
+  originalFileName: string,
+  scoreRules: ScoreRules = DEFAULT_SCORE_RULES,
+): Promise<ParseResult> {
   const checksum = crypto.createHash("sha256").update(buffer).digest("hex");
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: false, cellFormula: false, cellHTML: false });
   const sheet = workbook.Sheets[REQUIRED_SHEET];
@@ -119,7 +135,21 @@ export async function parseExcelBuffer(buffer: Buffer, originalFileName: string)
     const scores = [9, 10, 11, 12, 13].map((column) => parseCellNumber(sheet[XLSX.utils.encode_cell({ c: column, r: rowIndex })]));
     if (scores.some((score) => !Number.isFinite(score) || score < 0)) errors.push("Các cột điểm phải là số không âm.");
     const [fourYearAverage, fourYearConduct, priorityScore, encouragementScore, admissionScore] = scores.map((score) => Number.isFinite(score) ? score : 0);
-    if (Math.abs(fourYearAverage + fourYearConduct + priorityScore + encouragementScore - admissionScore) > 0.01) {
+    const componentRules = [
+      ["Tổng ĐTB 4 năm", fourYearAverage, scoreRules.fourYearAverage],
+      ["Tổng điểm quy đổi", fourYearConduct, scoreRules.fourYearConduct],
+      ["Điểm ưu tiên", priorityScore, scoreRules.priorityScore],
+      ["Điểm khuyến khích", encouragementScore, scoreRules.encouragementScore],
+    ] as const;
+    for (const [label, score, rule] of componentRules) {
+      if (score < rule.min || score > rule.max) errors.push(`${label} phải từ ${rule.min} đến ${rule.max}.`);
+      if (decimalPlaces(score) > rule.precision) errors.push(`${label} chỉ được tối đa ${rule.precision} chữ số thập phân.`);
+    }
+    const calculatedTotal = new Decimal(fourYearAverage)
+      .plus(fourYearConduct)
+      .plus(priorityScore)
+      .plus(encouragementScore);
+    if (!calculatedTotal.equals(new Decimal(admissionScore))) {
       errors.push("Điểm xét tuyển không khớp tổng các điểm thành phần.");
     }
     if (/^\d{12}$/.test(cccd) && validVietnameseDate(dob)) {

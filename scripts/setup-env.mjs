@@ -26,6 +26,8 @@ POSTGRES_DB="vvk_2026_2027"
 DATABASE_URL="postgresql://vvk_app:${databasePassword}@localhost:5433/vvk_2026_2027?schema=public"
 
 REDIS_URL="redis://localhost:6380"
+RATE_LIMIT_BACKEND="redis"
+TRUSTED_PROXY_HOPS="1"
 
 JWT_SECRET="${jwtSecret}"
 ENCRYPTION_KEY="${encryptionKey}"

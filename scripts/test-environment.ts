@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 export const testDatabaseUrl =
@@ -30,6 +32,7 @@ const testComposeArgs = [
 export function withTestEnvironment(
   runTests: (env: NodeJS.ProcessEnv) => void,
 ): void {
+  const storageRoot = mkdtempSync(path.join(os.tmpdir(), "vvk-tests-storage-"));
   const env = {
     ...process.env,
     DATABASE_URL: testDatabaseUrl,
@@ -40,6 +43,7 @@ export function withTestEnvironment(
     TEST_ADMIN_PASSWORD: "test-password-2026",
     JWT_SECRET: "super-secret-key-for-local-dev-only-vvk-2026-e2e-test",
     ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    STORAGE_ROOT: storageRoot,
   };
   run("docker", [...testComposeArgs, "up", "-d", "--wait"], env);
   try {
@@ -56,5 +60,6 @@ export function withTestEnvironment(
     runTests(env);
   } finally {
     run("docker", [...testComposeArgs, "down", "-v", "--remove-orphans"], env);
+    rmSync(storageRoot, { recursive: true, force: true });
   }
 }

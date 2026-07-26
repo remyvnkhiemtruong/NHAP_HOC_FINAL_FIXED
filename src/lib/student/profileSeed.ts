@@ -23,7 +23,11 @@ function scoreSource(record: SeedAdmissionRecord): Record<string, number> {
     : {};
 }
 
-export function profileSeedRows(studentId: string, record: SeedAdmissionRecord) {
+export function profileSeedRows(
+  studentId: string,
+  record: SeedAdmissionRecord,
+  admissionDate: Date,
+) {
   const scores = scoreSource(record);
   const admission = {
     middleSchool: record.middle_school_source ?? "",
@@ -51,7 +55,7 @@ export function profileSeedRows(studentId: string, record: SeedAdmissionRecord) 
       proposed_value: field.value,
       change_status: "UNCHANGED" as const,
     })),
-    ...getHiddenFieldDefaults({ fullName: record.full_name_source })
+    ...getHiddenFieldDefaults({ fullName: record.full_name_source, admissionDate })
       .filter((field) => field.value !== "")
       .map((field) => ({
         student_id: studentId,

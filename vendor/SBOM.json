@@ -1,0 +1,27 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "name": "vvk-admission-system"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "xlsx",
+      "group": "SheetJS",
+      "version": "0.20.3",
+      "scope": "required",
+      "purl": "pkg:npm/xlsx@0.20.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8DC73FC3B00203E72D176E85B50938627C7B086E607C682E8D3C22C02BB99FE8"
+        }
+      ]
+    }
+  ]
+}

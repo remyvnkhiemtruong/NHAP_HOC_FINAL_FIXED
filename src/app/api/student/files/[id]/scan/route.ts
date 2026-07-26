@@ -1,12 +1,10 @@
-import jsQR from "jsqr";
-import { FileCategory, Prisma } from "@/generated/prisma/client";
+import { FileCategory } from "@/generated/prisma/client";
 import { NextResponse } from "next/server";
-import sharp from "sharp";
 import { getSession } from "@/lib/auth";
-import { parseCccdQr } from "@/lib/cccd/qrParser";
-import { logServerError, publicServerError, requestId } from "@/lib/http";
+import { getClientIp, logServerError, publicServerError, requestId } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { readPrivateFile } from "@/lib/server/fileStorage";
+import { rateLimit } from "@/lib/rateLimit";
+import { enqueueProcessingJob } from "@/services/queue/processingQueue";
 
 export async function POST(
   request: Request,
@@ -16,72 +14,77 @@ export async function POST(
   try {
     const session = await getSession("student_session");
     if (!session?.studentId) return NextResponse.json({ error: "Chưa xác thực học sinh." }, { status: 401 });
+    const [studentLimit, ipLimit] = await Promise.all([
+      rateLimit(`ratelimit:scan:student:${session.studentId}`, 10, 10 * 60_000),
+      rateLimit(`ratelimit:scan:ip:${getClientIp(request.headers)}`, 30, 10 * 60_000),
+    ]);
+    if (!studentLimit.success || !ipLimit.success) {
+      return NextResponse.json({ error: "Quét ảnh quá thường xuyên.", code: "RATE_LIMITED" }, { status: 429 });
+    }
     const { id } = await params;
     const file = await prisma.fileRecord.findFirst({
       where: {
         id,
         student_id: session.studentId,
         category: { in: [FileCategory.CCCD_FRONT, FileCategory.CCCD_BACK] },
+        is_current: true,
       },
-      select: { id: true, category: true, storage_key: true },
+      select: { id: true, checksum: true, current_version: true, student: { select: { campaign_id: true } } },
     });
     if (!file) return NextResponse.json({ error: "Không tìm thấy tệp CCCD thuộc hồ sơ này." }, { status: 404 });
-
-    const input = await readPrivateFile(file.storage_key);
-    const { data, info } = await sharp(input)
-      .rotate()
-      .resize({ width: 1600, height: 1200, fit: "inside", withoutEnlargement: true })
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    const code = jsQR(new Uint8ClampedArray(data), info.width, info.height, { inversionAttempts: "attemptBoth" });
-    const rawPayload = code?.data ?? "";
-    const parsed = parseCccdQr(rawPayload);
-    const cardSide = file.category === FileCategory.CCCD_FRONT ? "FRONT" : "BACK";
-
-    const qrRecord = await prisma.$transaction(async (tx) => {
-      const result = await tx.qrScanResult.create({
-        data: {
-          file_id: file.id,
-          card_side: cardSide,
-          raw_payload: rawPayload || null,
-          parsed_json: {
-            data: parsed as unknown as Prisma.InputJsonValue,
-            decoder: { name: "jsQR", version: "1.4.0", execution: "server" },
-          },
-          success: Boolean(rawPayload),
-        },
-      });
-      await tx.ocrResult.create({
-        data: {
-          file_id: file.id,
-          engine: "server-disabled-manual-review",
-          raw_text: null,
-          parsed_json: { reason: "OCR language model is not bundled; QR was processed on the server." },
-          confidence: null,
-        },
-      });
-      await tx.auditLog.create({
-        data: {
-          actor_type: "STUDENT",
-          actor_id: session.studentId,
-          action: "CCCD_SERVER_SCAN_COMPLETED",
-          entity_type: "FileRecord",
-          entity_id: file.id,
-          request_id: requestIdentifier,
-          after_json: { cardSide, qrSuccess: Boolean(rawPayload) },
-        },
-      });
-      return result;
+    const dedupeKey = `qr:${file.id}:${file.current_version}:${file.checksum}:jsqr-1.4.0`;
+    const existing = await prisma.processingJob.findUnique({ where: { active_dedupe_key: dedupeKey } });
+    if (existing) {
+      if (existing.status === "PENDING") await enqueueProcessingJob(existing.id, existing.type);
+      return NextResponse.json({ success: true, jobId: existing.id, status: existing.status }, { status: 202 });
+    }
+    const job = await prisma.processingJob.create({
+      data: {
+        type: "QR_SCAN",
+        campaign_id: file.student.campaign_id,
+        subject_student_id: session.studentId,
+        subject_file_id: file.id,
+        owner_type: "STUDENT",
+        owner_id: session.studentId,
+        active_dedupe_key: dedupeKey,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1_000),
+      },
     });
-    return NextResponse.json({
-      success: true,
-      cardSide,
-      qr: { success: qrRecord.success, rawPayload: qrRecord.raw_payload, parsed },
-      ocr: { status: "MANUAL_REVIEW_REQUIRED" },
-    });
+    await enqueueProcessingJob(job.id, job.type);
+    return NextResponse.json({ success: true, jobId: job.id, status: job.status }, { status: 202 });
   } catch (error) {
-    logServerError("Persist CCCD server scan error", error, requestIdentifier);
+    logServerError("Queue CCCD scan error", error, requestIdentifier);
     return NextResponse.json(publicServerError(requestIdentifier), { status: 500 });
   }
+}
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const session = await getSession("student_session");
+  if (!session?.studentId) return NextResponse.json({ error: "Chưa xác thực học sinh." }, { status: 401 });
+  const { id } = await params;
+  const file = await prisma.fileRecord.findFirst({
+    where: { id, student_id: session.studentId, is_current: true },
+    include: {
+      qr_scan_results: { orderBy: { created_at: "desc" }, take: 1 },
+      processing_jobs: { where: { type: "QR_SCAN" }, orderBy: { created_at: "desc" }, take: 1 },
+    },
+  });
+  if (!file) return NextResponse.json({ error: "Không tìm thấy tệp." }, { status: 404 });
+  return NextResponse.json({
+    success: true,
+    job: file.processing_jobs[0]
+      ? {
+          id: file.processing_jobs[0].id,
+          status: file.processing_jobs[0].status,
+          progress: file.processing_jobs[0].progress,
+          error: file.processing_jobs[0].error_message,
+        }
+      : null,
+    qr: file.qr_scan_results[0]
+      ? { success: file.qr_scan_results[0].success, parsed: file.qr_scan_results[0].parsed_json }
+      : null,
+  });
 }

@@ -1,10 +1,10 @@
 import { ZipArchive } from 'archiver';
 import ExcelJS from 'exceljs';
 import path from 'node:path';
-import { PassThrough } from 'stream';
+import { PassThrough, type Writable } from 'stream';
 import { prisma } from '@/lib/prisma';
 import { calculateChecksum, readPrivateFile } from './fileStorage';
-import { generateStudentPdf } from './pdfExport';
+import { generateStudentPdf, type PdfCampaignConfig } from './pdfExport';
 import { normalizeImageToJpeg, normalizePhoto4x6ToJpeg } from './photoZipImage';
 import PDFDocument from 'pdfkit';
 import {
@@ -19,14 +19,17 @@ import {
 export { effectiveValue } from './schoolExcelExport';
 
 export const EXPORTABLE_STATUSES = ['APPROVED', 'LOCKED', 'EXPORTED'] as const;
-export const EXPORT_FILE_NAMES = {
-  SCHOOL_EXCEL: 'Thong_tin_hoc_sinh_toan_truong_2026_2027.xlsx',
-  BULK_STUDENT_PDF_ZIP: 'Phieu_thong_tin_hoc_sinh_toan_truong_2026_2027.zip',
-  PHOTO_ZIP: 'Anh_4x6_toan_truong_2026_2027.zip',
-  CCCD_ZIP: 'Anh_CCCD_toan_truong_2026_2027.zip',
-  SCAN_REPORT_CSV: 'Bao_cao_quet_QR_OCR_toan_truong_2026_2027.csv',
-  SCAN_REPORT_PDF: 'Bao_cao_quet_QR_OCR_toan_truong_2026_2027.pdf',
-} as const;
+export function exportFileNames(campaignCode: string) {
+  const safeCampaign = campaignCode.replaceAll(/[^A-Za-z0-9_-]/g, "_");
+  return {
+    SCHOOL_EXCEL: `Thong_tin_hoc_sinh_toan_truong_${safeCampaign}.xlsx`,
+    BULK_STUDENT_PDF_ZIP: `Phieu_thong_tin_hoc_sinh_${safeCampaign}.zip`,
+    PHOTO_ZIP: `Anh_4x6_${safeCampaign}.zip`,
+    CCCD_ZIP: `Anh_CCCD_${safeCampaign}.zip`,
+    SCAN_REPORT_CSV: `Bao_cao_scan_${safeCampaign}.csv`,
+    SCAN_REPORT_PDF: `Bao_cao_scan_${safeCampaign}.pdf`,
+  } as const;
+}
 
 type ExportFile = { category: string; storage_key: string; original_name: string; mime: string; status: string; current_version: number };
 
@@ -93,10 +96,30 @@ export function buildErrorReport(issues: PreflightIssue[]): Buffer {
   return Buffer.from(`\uFEFF${lines.join('\r\n')}\r\n`, 'utf8');
 }
 
-export async function loadApprovedStudents(studentId?: string) {
+export async function loadApprovedStudents(studentId?: string, campaignId?: string, studentIds?: readonly string[]) {
   return prisma.student.findMany({
-    where: { status: { in: [...EXPORTABLE_STATUSES] }, ...(studentId ? { id: studentId } : {}) },
-    include: { admission_record: true, profile_values: true, files: { include: { qr_scan_results: true, ocr_results: true } }, addresses: true, family_members: true, policy_records: true, disabilities: true },
+    where: {
+      status: { in: [...EXPORTABLE_STATUSES] },
+      ...(campaignId ? { campaign_id: campaignId } : {}),
+      ...(studentId ? { id: studentId } : studentIds?.length ? { id: { in: [...studentIds] } } : {}),
+    },
+    include: {
+      admission_record: true,
+      profile_values: true,
+      profile_versions: {
+        orderBy: { version_number: 'desc' },
+        take: 1,
+        select: { version_number: true },
+      },
+      files: {
+        where: { is_current: true },
+        include: { qr_scan_results: true, ocr_results: true },
+      },
+      addresses: true,
+      family_members: true,
+      policy_records: true,
+      disabilities: true,
+    },
     orderBy: { admission_record: { source_tt: 'asc' } },
   });
 }
@@ -113,7 +136,10 @@ function clearDataContents(sheet: ExcelJS.Worksheet): void {
   for (let rowNumber = DATA_START_ROW; rowNumber <= sheet.rowCount; rowNumber += 1) sheet.getRow(rowNumber).values = [];
 }
 
-export async function generateSchoolExcel(students: readonly SchoolExcelStudent[]): Promise<Buffer> {
+async function buildSchoolWorkbook(
+  students: readonly SchoolExcelStudent[],
+  campaign?: { admissionDate: Date },
+): Promise<ExcelJS.Workbook> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(path.join(process.cwd(), '00_INPUTS', '02_MAU_XUAT_95_COT_SMAS_MOET.xlsx'));
   const sheet = workbook.getWorksheet('DanhSachHocSinh');
@@ -123,7 +149,7 @@ export async function generateSchoolExcel(students: readonly SchoolExcelStudent[
   students.forEach((student, index) => {
     const row = sheet.getRow(DATA_START_ROW + index);
     row.height = templateRow.height;
-    mapSchoolExcelRow(student, index + 1).forEach((value, columnIndex) => {
+    mapSchoolExcelRow(student, index + 1, campaign).forEach((value, columnIndex) => {
       const cell = row.getCell(columnIndex + 1);
       if (index > 0) cell.style = { ...templateRow.getCell(columnIndex + 1).style };
       cell.value = typeof value === 'string' ? safeSpreadsheetText(value) : value;
@@ -132,7 +158,29 @@ export async function generateSchoolExcel(students: readonly SchoolExcelStudent[
   for (const field of EXCEL_TEXT_FIELDS) sheet.getColumn(excelColumnNumber(field)).numFmt = '@';
   for (const field of EXCEL_DATE_FIELDS) sheet.getColumn(excelColumnNumber(field)).numFmt = 'dd/mm/yyyy';
   if (sheet.columnCount !== EXCEL_FIELD_CODES.length) throw new Error('Excel template must have exactly 95 columns');
-  return Buffer.from(await workbook.xlsx.writeBuffer());
+  return workbook;
+}
+
+export async function generateSchoolExcel(
+  students: readonly SchoolExcelStudent[],
+  campaign?: { admissionDate: Date },
+): Promise<Buffer> {
+  return Buffer.from(await (await buildSchoolWorkbook(students, campaign)).xlsx.writeBuffer());
+}
+
+export async function writeSchoolExcel(
+  students: readonly SchoolExcelStudent[],
+  destination: Writable,
+  campaign?: { admissionDate: Date },
+): Promise<void> {
+  const finished = new Promise<void>((resolve, reject) => {
+    destination.once('finish', resolve);
+    destination.once('error', reject);
+  });
+  const workbook = await buildSchoolWorkbook(students, campaign);
+  await workbook.xlsx.write(destination);
+  if (!destination.writableEnded) destination.end();
+  await finished;
 }
 
 async function archiveEntries(entries: Array<{ name: string; buffer: Buffer }>): Promise<Buffer> {
@@ -164,6 +212,36 @@ export async function generateImageZip(students: Awaited<ReturnType<typeof loadA
   return archiveEntries(entries);
 }
 
+export async function writeImageZip(
+  students: Awaited<ReturnType<typeof loadApprovedStudents>>,
+  type: 'PHOTO_ZIP' | 'CCCD_ZIP',
+  destination: Writable,
+): Promise<void> {
+  const archive = new ZipArchive({ zlib: { level: 9 } });
+  const finished = new Promise<void>((resolve, reject) => {
+    destination.once('finish', resolve);
+    destination.once('error', reject);
+  });
+  archive.pipe(destination);
+  for (const student of students) {
+    const cccd = exportCccd(student.profile_values, student.current_cccd);
+    const files = selectCurrentFiles(student.files);
+    if (type === 'PHOTO_ZIP') {
+      const photo = files.get('PHOTO_4X6');
+      if (photo) archive.append(await normalizePhoto4x6ToJpeg(await readPrivateFile(photo.storage_key)), { name: photoZipPath(cccd) });
+    } else {
+      const front = files.get('CCCD_FRONT');
+      const back = files.get('CCCD_BACK');
+      if (!front || !back) continue;
+      const paths = cccdZipPaths(cccd);
+      archive.append(await normalizeImageToJpeg(await readPrivateFile(front.storage_key)), { name: paths.front });
+      archive.append(await normalizeImageToJpeg(await readPrivateFile(back.storage_key)), { name: paths.back });
+    }
+  }
+  await archive.finalize();
+  await finished;
+}
+
 export function preflightPdfZip(students: readonly ExportStudent[]): PreflightIssue[] {
   const issues: PreflightIssue[] = [];
   const seen = new Set<string>();
@@ -188,13 +266,35 @@ export function studentsWithoutPreflightIssues(students: readonly ExportStudent[
   return students.filter((student) => !blocked.has(exportCccd(student.profile_values, student.current_cccd)));
 }
 
-export async function generateBulkStudentPdfZip(students: readonly ExportStudent[]): Promise<Buffer> {
+export async function generateBulkStudentPdfZip(
+  students: readonly ExportStudent[],
+  campaign?: PdfCampaignConfig,
+): Promise<Buffer> {
   const entries: Array<{ name: string; buffer: Buffer }> = [];
   for (const student of students) {
     const cccd = safeCccdPathSegment(exportCccd(student.profile_values, student.current_cccd));
-    entries.push({ name: `Thong_tin_hoc_sinh_${cccd}.pdf`, buffer: await generatePdfForStudent(student) });
+    entries.push({ name: `Thong_tin_hoc_sinh_${cccd}.pdf`, buffer: await generatePdfForStudent(student, campaign) });
   }
   return archiveEntries(entries);
+}
+
+export async function writeBulkStudentPdfZip(
+  students: readonly ExportStudent[],
+  destination: Writable,
+  campaign?: PdfCampaignConfig,
+): Promise<void> {
+  const archive = new ZipArchive({ zlib: { level: 9 } });
+  const finished = new Promise<void>((resolve, reject) => {
+    destination.once('finish', resolve);
+    destination.once('error', reject);
+  });
+  archive.pipe(destination);
+  for (const student of students) {
+    const cccd = safeCccdPathSegment(exportCccd(student.profile_values, student.current_cccd));
+    archive.append(await generatePdfForStudent(student, campaign), { name: `Thong_tin_hoc_sinh_${cccd}.pdf` });
+  }
+  await archive.finalize();
+  await finished;
 }
 
 type ScanReportRow = { cccd: string; fullName: string; file: string; scan: string; result: string; createdAt: string };
@@ -237,8 +337,32 @@ export async function generateScanReportPdf(students: readonly ExportStudent[]):
   return completed;
 }
 
-export async function generatePdfForStudent(student: Awaited<ReturnType<typeof loadApprovedStudents>>[number]): Promise<Buffer> {
-  return generateStudentPdf({ student: { id: student.id, current_cccd: effectiveValue(student.profile_values, 'BF') || student.current_cccd || '', current_dob: effectiveValue(student.profile_values, 'F') || student.current_dob, status: student.status }, admission_record: { full_name_source: student.admission_record.full_name_source, cccd_source: student.admission_record.cccd_source, dob_source: student.admission_record.dob_source, ethnicity_source: student.admission_record.ethnicity_source, residence_source: student.admission_record.residence_source, middle_school_source: student.admission_record.middle_school_source, middle_school_commune_source: student.admission_record.middle_school_commune_source, score_fields: typeof student.admission_record.score_fields === 'object' && student.admission_record.score_fields !== null && !Array.isArray(student.admission_record.score_fields) ? student.admission_record.score_fields as Record<string, unknown> : null, note_source: student.admission_record.note_source, data_quality_flags: Array.isArray(student.admission_record.data_quality_flags) ? student.admission_record.data_quality_flags.map(String) : student.admission_record.data_quality_flags && typeof student.admission_record.data_quality_flags === 'object' && !Array.isArray(student.admission_record.data_quality_flags) && 'flags' in student.admission_record.data_quality_flags && Array.isArray((student.admission_record.data_quality_flags as { flags?: unknown }).flags) ? ((student.admission_record.data_quality_flags as { flags: unknown[] }).flags).map(String) : null, source_tt: student.admission_record.source_tt, female_mark_source: student.admission_record.female_mark_source }, profile_values: student.profile_values, files: student.files.map((file) => ({ ...file, category: file.category, qr_scan_results: file.qr_scan_results })), family_members: student.family_members, policy_records: student.policy_records, disabilities: student.disabilities });
+export async function writeScanReportPdf(
+  students: readonly ExportStudent[],
+  destination: Writable,
+): Promise<void> {
+  const rows = scanReportRows(students);
+  const document = new PDFDocument({ margin: 36, size: 'A4' });
+  const finished = new Promise<void>((resolve, reject) => {
+    destination.once('finish', resolve);
+    destination.once('error', reject);
+  });
+  document.pipe(destination);
+  document.registerFont('NotoSans', path.join(process.cwd(), 'node_modules', '@fontsource', 'noto-sans', 'files', 'noto-sans-vietnamese-400-normal.woff'));
+  document.registerFont('NotoSans-Bold', path.join(process.cwd(), 'node_modules', '@fontsource', 'noto-sans', 'files', 'noto-sans-vietnamese-700-normal.woff'));
+  document.font('NotoSans-Bold').fontSize(15).text('Báo cáo quét QR/OCR toàn trường');
+  document.moveDown().font('NotoSans').fontSize(9);
+  if (!rows.length) document.text('Chưa có kết quả quét QR/OCR cho các hồ sơ đủ điều kiện xuất.');
+  for (const row of rows) document.text(`${row.cccd} · ${row.fullName} · ${fileCategoryForReport(row.file)} · ${row.scan}: ${row.result}`);
+  document.end();
+  await finished;
+}
+
+export async function generatePdfForStudent(
+  student: Awaited<ReturnType<typeof loadApprovedStudents>>[number],
+  campaign?: PdfCampaignConfig,
+): Promise<Buffer> {
+  return generateStudentPdf({ student: { id: student.id, current_cccd: effectiveValue(student.profile_values, 'BF') || student.current_cccd || '', current_dob: effectiveValue(student.profile_values, 'F') || student.current_dob, status: student.status }, admission_record: { full_name_source: student.admission_record.full_name_source, cccd_source: student.admission_record.cccd_source, dob_source: student.admission_record.dob_source, ethnicity_source: student.admission_record.ethnicity_source, residence_source: student.admission_record.residence_source, middle_school_source: student.admission_record.middle_school_source, middle_school_commune_source: student.admission_record.middle_school_commune_source, score_fields: typeof student.admission_record.score_fields === 'object' && student.admission_record.score_fields !== null && !Array.isArray(student.admission_record.score_fields) ? student.admission_record.score_fields as Record<string, unknown> : null, note_source: student.admission_record.note_source, data_quality_flags: Array.isArray(student.admission_record.data_quality_flags) ? student.admission_record.data_quality_flags.map(String) : student.admission_record.data_quality_flags && typeof student.admission_record.data_quality_flags === 'object' && !Array.isArray(student.admission_record.data_quality_flags) && 'flags' in student.admission_record.data_quality_flags && Array.isArray((student.admission_record.data_quality_flags as { flags?: unknown }).flags) ? ((student.admission_record.data_quality_flags as { flags: unknown[] }).flags).map(String) : null, source_tt: student.admission_record.source_tt, female_mark_source: student.admission_record.female_mark_source }, profile_values: student.profile_values, files: student.files.map((file) => ({ ...file, category: file.category, qr_scan_results: file.qr_scan_results })), family_members: student.family_members, policy_records: student.policy_records, disabilities: student.disabilities }, campaign);
 }
 
 export function outputChecksum(buffer: Buffer): string { return calculateChecksum(buffer); }

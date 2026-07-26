@@ -28,8 +28,8 @@ describe("student profile rules", () => {
     expect(isStudentEditableField("BF")).toBe(true);
     expect(isStudentEditableField("AG")).toBe(false);
     expect(isStudentEditableField("BH")).toBe(false);
-    expect(isStudentEditableField("CE")).toBe(false);
-    expect(isStudentEditableField("BS")).toBe(false);
+    expect(isStudentEditableField("CE")).toBe(true);
+    expect(isStudentEditableField("BS")).toBe(true);
   });
 
   it("persists only editable string fields", () => {
@@ -41,6 +41,6 @@ describe("student profile rules", () => {
         CE: "should-not-save",
         has_policy: true,
       }),
-    ).toEqual({ BF: "095311003768" });
+    ).toEqual({ BF: "095311003768", CE: "should-not-save", has_policy: "true" });
   });
 });

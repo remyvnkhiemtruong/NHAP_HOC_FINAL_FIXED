@@ -6,23 +6,27 @@ const ADMIN_PROTECTED = ["/admin", "/api/admin"];
 const ADMIN_PUBLIC = new Set(["/admin/login", "/api/admin/login"]);
 const STUDENT_PUBLIC = new Set(["/student/login", "/api/student/access"]);
 
-const CSP = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-  "object-src 'none'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "worker-src 'self' blob:",
-  "media-src 'none'",
-].join("; ");
+function contentSecurityPolicy(nonce: string): string {
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    `style-src 'self' 'nonce-${nonce}'`,
+    "style-src-attr 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "worker-src 'self' blob:",
+    "media-src 'none'",
+    ...(process.env.NODE_ENV === "production" ? ["upgrade-insecure-requests"] : []),
+  ].join("; ");
+}
 
-function applySecurityHeaders(response: NextResponse): NextResponse {
-  response.headers.set("Content-Security-Policy", CSP);
+function applySecurityHeaders(response: NextResponse, csp: string): NextResponse {
+  response.headers.set("Content-Security-Policy", csp);
   response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
@@ -53,6 +57,8 @@ async function verifiedType(token: string | undefined, expected: "admin" | "stud
 }
 
 export async function proxy(request: NextRequest) {
+  const nonce = crypto.randomUUID().replaceAll("-", "");
+  const csp = contentSecurityPolicy(nonce);
   const path = request.nextUrl.pathname;
   const adminProtected = ADMIN_PROTECTED.some(
     (prefix) => path.startsWith(prefix) && !ADMIN_PUBLIC.has(path),
@@ -63,7 +69,7 @@ export async function proxy(request: NextRequest) {
       const response = path.startsWith("/api")
         ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         : NextResponse.redirect(new URL("/admin/login", request.url));
-      return applySecurityHeaders(response);
+      return applySecurityHeaders(response, csp);
     }
   }
 
@@ -76,11 +82,17 @@ export async function proxy(request: NextRequest) {
       const response = path.startsWith("/api")
         ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         : NextResponse.redirect(new URL("/student/login", request.url));
-      return applySecurityHeaders(response);
+      return applySecurityHeaders(response, csp);
     }
   }
 
-  return applySecurityHeaders(NextResponse.next());
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp);
+  return applySecurityHeaders(
+    NextResponse.next({ request: { headers: requestHeaders } }),
+    csp,
+  );
 }
 
 export const config = {

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState, ReactNode } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import StatusBadge from "@/components/StatusBadge";
@@ -17,6 +17,11 @@ type ProfilePayload = {
 
 type InputDefinition = { code: string; label: string; placeholder?: string; type?: string; required?: boolean; options?: string[]; wide?: boolean; help?: ReactNode; disabled?: boolean; provinceCode?: string; refKey?: string };
 type StepDefinition = { title: string; subtitle: string; fields?: InputDefinition[]; kind?: "files" | "review" };
+type AddressCatalog = {
+  provinces: string[];
+  communes: Record<string, Record<string, string[]>>;
+  ref: Record<string, string[]>;
+};
 
 const STEPS: StepDefinition[] = [
   { title: "Thông tin trúng tuyển", subtitle: "Đối chiếu thông tin cá nhân và kết quả tuyển sinh.", fields: [
@@ -203,7 +208,7 @@ function validateYearPartial(year: string): { tone: "error" | "info" | "success"
   return { tone: "info", text: `Đang nhập năm sinh... (${year.length}/4)` };
 }
 
-function FieldInput({ definition, value, fields, disabled, onChange, addressData }: { definition: InputDefinition; value: FieldValue | undefined; fields: Record<string, FieldValue>; disabled: boolean; onChange: (code: string, value: FieldValue) => void; addressData: any }) {
+function FieldInput({ definition, value, fields, disabled, onChange, addressData }: { definition: InputDefinition; value: FieldValue | undefined; fields: Record<string, FieldValue>; disabled: boolean; onChange: (code: string, value: FieldValue) => void; addressData: AddressCatalog | null }) {
   const isDisabled = disabled || definition.disabled;
   const className = `field ${definition.wide ? "field--wide" : ""}`;
 
@@ -265,14 +270,10 @@ export default function StudentProfilePage() {
   const [fields, setFields] = useState<Record<string, FieldValue>>({});
   const [admission, setAdmission] = useState<Record<string, string>>({});
   const [step, setStep] = useState(0);
-  const [highestStep, setHighestStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
-  const [addressData, setAddressData] = useState<any>(null);
-
-  useEffect(() => {
-    setHighestStep(h => Math.max(h, step));
-  }, [step]);
+  const [addressData, setAddressData] = useState<AddressCatalog | null>(null);
+  const dirtyRef = useRef(false);
 
   useEffect(() => {
     fetch("/smas-data.json").then((r) => r.json()).then(setAddressData).catch(console.error);
@@ -283,6 +284,7 @@ export default function StudentProfilePage() {
     if (response.status === 401) { router.replace("/student/login"); return; }
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? "Không thể tải hồ sơ.");
+    dirtyRef.current = false;
     setData(result); setFields(result.fields ?? {}); setAdmission(result.admission ?? {});
   }, [router]);
 
@@ -290,67 +292,23 @@ export default function StudentProfilePage() {
   
   // Auto-save effect
   useEffect(() => {
-    if (!data?.student.editable) return;
+    if (!data?.student.editable || !dirtyRef.current) return;
     const timer = setTimeout(() => {
-      save();
+      save({ clearMessage: false });
     }, 2000);
     return () => clearTimeout(timer);
   }, [fields, admission, data?.student.editable]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Real-time validation toast
-  useEffect(() => {
-    if (fields.BF) {
-      const err = validateCCCDPartial(String(fields.BF), String(fields.F || ""), String(fields.G || ""));
-      if (err && err.tone === "error") { setMessage({ tone: "error", text: err.text }); return; }
-    }
-    for (const code of ["AF", "AN", "AT", "AZ"]) {
-      if (fields[code]) {
-        const err = validatePhonePartial(String(fields[code]));
-        if (err && err.tone === "error") { setMessage({ tone: "error", text: err.text }); return; }
-      }
-    }
-    for (const code of ["BI", "AO", "AU", "BA"]) {
-      if (fields[code]) {
-        const err = validateEmailPartial(String(fields[code]), code === "BI");
-        if (err && err.tone === "error") { setMessage({ tone: "error", text: err.text }); return; }
-      }
-    }
-    for (const code of ["AL", "AR", "AX"]) {
-      if (fields[code]) {
-        const err = validateYearPartial(String(fields[code]));
-        if (err && err.tone === "error") { setMessage({ tone: "error", text: err.text }); return; }
-      }
-    }
-    if (fields.AP) {
-      const err = validateParentCCCD(String(fields.AP), "father");
-      if (err && err.tone === "error") { setMessage({ tone: "error", text: err.text }); return; }
-    }
-    if (fields.AV) {
-      const err = validateParentCCCD(String(fields.AV), "mother");
-      if (err && err.tone === "error") { setMessage({ tone: "error", text: err.text }); return; }
-    }
-    if (fields.BB) {
-      const err = validateParentCCCD(String(fields.BB), "guardian");
-      if (err && err.tone === "error") { setMessage({ tone: "error", text: err.text }); return; }
-    }
-  }, [fields.BF, fields.F, fields.G, fields.AF, fields.AN, fields.AT, fields.AZ, fields.BI, fields.AO, fields.AU, fields.BA, fields.AL, fields.AR, fields.AX, fields.AP, fields.AV, fields.BB]);
-
   const activeSteps = useMemo(() => {
-    let steps = STEPS.map(step => ({ ...step }));
-    
-    const chaDaMat = Boolean(fields.father_status);
-    const meDaMat = Boolean(fields.mother_status);
-    if (!(chaDaMat && meDaMat)) {
-      steps = steps.filter(s => s.title !== "Người bảo hộ");
-    }
+    const steps = STEPS.map(step => ({ ...step }));
 
     return steps.map(step => {
       let stepFields = step.fields;
       if (stepFields) {
         if (step.title === "Thông tin gia đình") {
           stepFields = stepFields.filter(f => {
-            if (chaDaMat && ["AK", "AL", "AM", "AN", "AO", "AP"].includes(f.code)) return false;
-            if (meDaMat && ["AQ", "AR", "AS", "AT", "AU", "AV"].includes(f.code)) return false;
+            if (Boolean(fields.father_status) && ["AK", "AL", "AM", "AN", "AO", "AP"].includes(f.code)) return false;
+            if (Boolean(fields.mother_status) && ["AQ", "AR", "AS", "AT", "AU", "AV"].includes(f.code)) return false;
             return true;
           });
         }
@@ -389,7 +347,7 @@ export default function StudentProfilePage() {
           if (err) {
             return {
               ...f,
-              help: <span style={{ color: err.tone === "error" ? "red" : err.tone === "success" ? "green" : "inherit" }}>{err.text}</span>
+              help: <span className={err.tone === "error" ? "validation-help--error" : err.tone === "success" ? "validation-help--success" : ""}>{err.text}</span>
             };
           }
           return f;
@@ -448,15 +406,11 @@ export default function StudentProfilePage() {
     return true;
   }
   function canGoToStep(targetStep: number) {
-    if (targetStep <= step) return true;
-    if (targetStep > highestStep) return false;
-    for (let i = 0; i < targetStep; i++) {
-      if (!isStepValid(i)) return false;
-    }
-    return true;
+    return targetStep >= 0 && targetStep < activeSteps.length;
   }
 
   function updateField(code: string, value: FieldValue) {
+    dirtyRef.current = true;
     setFields((old) => {
       let val = value;
       if (typeof val === "string") {
@@ -510,14 +464,16 @@ export default function StudentProfilePage() {
       return updated;
     }); 
   }
-  async function save() {
+  async function save({ clearMessage = true }: { clearMessage?: boolean } = {}) {
     if (!data?.student.editable) return true;
-    setBusy(true); setMessage(null);
+    setBusy(true);
+    if (clearMessage) setMessage(null);
     try {
       const editableAdmission = { middleSchool: admission.middleSchool, middleSchoolCommune: admission.middleSchoolCommune, fourYearAverage: admission.fourYearAverage, fourYearConduct: admission.fourYearConduct, priorityScore: admission.priorityScore, encouragementScore: admission.encouragementScore, note: admission.note };
       const response = await fetch("/api/student/profile", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ fields, admission: editableAdmission }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Không thể lưu hồ sơ.");
+      dirtyRef.current = false;
       // Silent auto-save, no success message or reload
       return true;
     } catch (caught) { setMessage({ tone: "error", text: caught instanceof Error ? caught.message : "Không thể lưu hồ sơ." }); return false; }
@@ -539,7 +495,11 @@ export default function StudentProfilePage() {
       setMessage({ tone: "error", text: "Vui lòng điền đầy đủ và chính xác các trường bắt buộc (*) trước khi tiếp tục." });
       return;
     }
-    if (await save()) { setStep((value) => Math.min(value + 1, activeSteps.length - 1)); window.scrollTo({ top: 0, behavior: "smooth" }); } 
+    if (await save()) {
+      const target = Math.min(step + 1, activeSteps.length - 1);
+      setStep(target);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   }
   async function upload(category: string, event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]; if (!file) return;
@@ -547,7 +507,21 @@ export default function StudentProfilePage() {
     try { const form = new FormData(); form.set("category", category); form.set("file", file);
       const response = await fetch("/api/student/files/upload", { method: "POST", body: form }); const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Tải ảnh thất bại.");
-      setMessage({ tone: result.fileRecord.status === "AUTO_VALID" ? "success" : "info", text: result.fileRecord.status === "AUTO_VALID" ? "Ảnh đã được tải và kiểm tra hợp lệ." : "Ảnh đã tải lên nhưng cần nhà trường kiểm tra thêm." }); await load();
+      setMessage({ tone: "info", text: "Ảnh đã được tiếp nhận và đang kiểm tra." });
+      let completedFile: { status: string } | null = null;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const statusResponse = await fetch(`/api/student/jobs/${result.jobId}`, { cache: "no-store" });
+        const statusResult = await statusResponse.json();
+        if (!statusResponse.ok) throw new Error(statusResult.error ?? "Không đọc được trạng thái xử lý ảnh.");
+        if (statusResult.job.status === "FAILED") throw new Error(statusResult.job.error?.message ?? "Xử lý ảnh thất bại.");
+        if (statusResult.job.status === "COMPLETED") {
+          completedFile = statusResult.job.result?.fileRecord ?? null;
+          break;
+        }
+      }
+      if (!completedFile) throw new Error("Ảnh vẫn đang xử lý. Vui lòng tải lại trang sau.");
+      setMessage({ tone: completedFile.status === "AUTO_VALID" ? "success" : "info", text: completedFile.status === "AUTO_VALID" ? "Ảnh đã được tải và kiểm tra hợp lệ." : "Ảnh đã tải lên nhưng cần nhà trường kiểm tra thêm." }); await load();
     } catch (caught) { setMessage({ tone: "error", text: caught instanceof Error ? caught.message : "Tải ảnh thất bại." }); }
     finally { setBusy(false); event.target.value = ""; }
   }
@@ -556,51 +530,61 @@ export default function StudentProfilePage() {
 
   if (!data) return <><AppHeader mode="student"/><main className="loading-page"><div className="spinner"/><p>Đang tải hồ sơ…</p></main></>;
   return <><AppHeader mode="student"/><main className="workspace"><div className="workspace__layout">
-    <aside className="stepper-card"><div className="stepper-card__head"><span>Tiến độ hồ sơ</span><strong>{completion}%</strong></div><div className="progress"><span style={{ width: `${completion}%` }} /></div>
-      <ol className="stepper">{activeSteps.map((item, index) => <li key={item.title} className={index === step ? "active" : index < step ? "done" : ""}><button type="button" onClick={() => canGoToStep(index) && setStep(index)} style={{ opacity: canGoToStep(index) ? 1 : 0.5, cursor: canGoToStep(index) ? "pointer" : "not-allowed" }}><b>{index < step ? "✓" : index + 1}</b><span>{item.title}</span></button></li>)}</ol>
+    <aside className="stepper-card"><div className="stepper-card__head"><span>Tiến độ hồ sơ</span><strong>{completion}%</strong></div><progress className="native-progress" max={100} value={completion} aria-label={`Tiến độ ${completion}%`} />
+      <select
+        className="mobile-step-nav"
+        aria-label="Chọn bước hồ sơ"
+        value={step}
+        onChange={(event) => setStep(Number(event.target.value))}
+      >
+        {activeSteps.map((item, index) => (
+          <option key={item.title} value={index}>{index + 1}. {item.title}</option>
+        ))}
+      </select>
+      <ol className="stepper">{activeSteps.map((item, index) => { const enabled = canGoToStep(index); return <li key={item.title} className={index === step ? "active" : index < step ? "done" : ""}><button type="button" disabled={!enabled} onClick={() => enabled && setStep(index)}><b>{index < step ? "✓" : index + 1}</b><span>{item.title}</span></button></li>; })}</ol>
       <div className="stepper-card__status"><small>Trạng thái hiện tại</small><StatusBadge status={data.student.status}/></div>
     </aside>
     <section className="form-shell"><div className="form-shell__head"><div><span className="eyebrow">BƯỚC {step + 1}/{activeSteps.length}</span><h1>{current.title}</h1><p>{current.subtitle}</p></div></div>
       {!data.student.editable && <div className="notice notice--info"><strong>Hồ sơ hiện không thể chỉnh sửa.</strong><p>Hồ sơ đã được gửi hoặc khóa. Khi nhà trường yêu cầu bổ sung, hệ thống sẽ mở lại quyền chỉnh sửa.</p></div>}
       {message && <div className={`notice notice--${message.tone}`}>{message.text}</div>}
-      {step === 0 && <div className="admission-summary" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}><div><small>Trường THCS</small><input value={admission.middleSchool ?? ""} disabled={true} onChange={(e) => setAdmission((old) => ({ ...old, middleSchool: e.target.value }))}/></div><div><small>Địa bàn trường THCS</small><input value={admission.middleSchoolCommune ?? ""} disabled={true} onChange={(e) => setAdmission((old) => ({ ...old, middleSchoolCommune: e.target.value }))}/></div><div><small>Tổng ĐTB 4 năm</small><input value={admission.fourYearAverage || "0"} disabled={true} /></div><div><small>Tổng điểm quy đổi</small><input value={admission.fourYearConduct || "0"} disabled={true} /></div><div><small>Điểm ưu tiên</small><input value={admission.priorityScore || "0"} disabled={true} /></div><div><small>Điểm khuyến khích</small><input value={admission.encouragementScore || "0"} disabled={true} /></div><div><small>Điểm xét tuyển</small><strong>{admission.admissionScore || "Chưa có"}</strong></div></div>}
+      {step === 0 && <div className="admission-summary admission-summary--wide"><div><small>Trường THCS</small><input value={admission.middleSchool ?? ""} disabled={true} onChange={(e) => setAdmission((old) => ({ ...old, middleSchool: e.target.value }))}/></div><div><small>Địa bàn trường THCS</small><input value={admission.middleSchoolCommune ?? ""} disabled={true} onChange={(e) => setAdmission((old) => ({ ...old, middleSchoolCommune: e.target.value }))}/></div><div><small>Tổng ĐTB 4 năm</small><input value={admission.fourYearAverage || "0"} disabled={true} /></div><div><small>Tổng điểm quy đổi</small><input value={admission.fourYearConduct || "0"} disabled={true} /></div><div><small>Điểm ưu tiên</small><input value={admission.priorityScore || "0"} disabled={true} /></div><div><small>Điểm khuyến khích</small><input value={admission.encouragementScore || "0"} disabled={true} /></div><div><small>Điểm xét tuyển</small><strong>{admission.admissionScore || "Chưa có"}</strong></div></div>}
       {current.fields && <div className="form-grid">{current.fields.map((definition) => <FieldInput key={definition.code} definition={definition} value={fields[definition.code]} fields={fields} disabled={!data.student.editable || busy} onChange={updateField} addressData={addressData}/>)}</div>}
       {current.kind === "files" && <form onSubmit={submit}>
         <div className="upload-grid">
           {FILE_TYPES.map((type) => { 
             const file = fileMap.get(type.category); 
             return (
-              <article key={type.category} style={{ display: "flex", flexDirection: "column", gap: "16px", padding: "20px", background: "#fff", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: "600", color: "#1e293b" }}>{type.label}</h3>
+              <article key={type.category} className="upload-item">
+                <div className="upload-item__head">
+                  <h3>{type.label}</h3>
                   {file && <StatusBadge status={file.status}/>}
                 </div>
                 
                 <div className="upload-split">
                   <div className="upload-split-item">
                     <span className="upload-split-label">Ảnh mẫu</span>
-                    <div style={{ position: "relative", width: "100%", aspectRatio: type.category === "PHOTO_4X6" ? "3/4" : "1.6/1", borderRadius: "12px", overflow: "hidden", border: "1px solid #e2e8f0", backgroundColor: "#f8fafc" }}>
-                      <Image src={type.sample} alt={`Mẫu ${type.label}`} fill unoptimized sizes="300px" style={{ objectFit: "cover", opacity: 0.9 }} />
+                    <div className={`upload-preview ${type.category === "PHOTO_4X6" ? "upload-preview--portrait" : ""}`}>
+                      <Image src={type.sample} alt={`Mẫu ${type.label}`} fill unoptimized sizes="300px" className="upload-preview__sample" />
                     </div>
                   </div>
                   
                   <div className="upload-split-item">
                     <span className="upload-split-label">Ảnh tải lên</span>
-                    <label style={{ position: "relative", display: "block", width: "100%", aspectRatio: type.category === "PHOTO_4X6" ? "3/4" : "1.6/1", borderRadius: "12px", overflow: "hidden", cursor: (data.student.editable && !busy) ? "pointer" : "default", border: file ? "none" : "2px dashed #cbd9e1", backgroundColor: "#f8fafc" }}>
+                    <label className={`upload-preview upload-preview--picker ${type.category === "PHOTO_4X6" ? "upload-preview--portrait" : ""} ${data.student.editable && !busy ? "is-editable" : ""} ${file ? "" : "is-empty"}`}>
                       {file ? (
-                        <Image src={file.url} alt={type.label} fill unoptimized sizes="300px" style={{ objectFit: "cover" }} />
+                        <Image src={file.url} alt={type.label} fill unoptimized sizes="300px" className="upload-preview__image" />
                       ) : (
-                        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px", color: "#64748b" }}>
-                          <span style={{ fontSize: "24px" }}>+</span>
-                          <span style={{ fontSize: "14px", fontWeight: 500 }}>Nhấn để chọn ảnh</span>
+                        <div className="upload-placeholder">
+                          <span className="upload-placeholder__plus">+</span>
+                          <span className="upload-placeholder__text">Nhấn để chọn ảnh</span>
                         </div>
                       )}
                       {data.student.editable && (
-                        <div className="upload-overlay" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.4)", opacity: 0, transition: "opacity 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.opacity = "1"} onMouseLeave={(e) => e.currentTarget.style.opacity = "0"}>
-                          <span style={{ color: "white", fontWeight: "bold", background: "rgba(0,0,0,0.6)", padding: "8px 16px", borderRadius: "20px" }}>{file ? "Thay đổi" : "Tải lên"}</span>
+                        <div className="upload-overlay">
+                          <span>{file ? "Thay đổi" : "Tải lên"}</span>
                         </div>
                       )}
-                      <input type="file" accept="image/jpeg,.jpg,.jpeg" style={{ display: "none" }} disabled={!data.student.editable || busy} onChange={(event) => upload(type.category, event)}/>
+                      <input type="file" accept="image/jpeg,.jpg,.jpeg" className="input-file-hidden" disabled={!data.student.editable || busy} onChange={(event) => upload(type.category, event)}/>
                     </label>
                   </div>
                 </div>
@@ -610,13 +594,13 @@ export default function StudentProfilePage() {
             ); 
           })}
         </div>
-        <div className="review-box" style={{ background: "#f8fafc", padding: "24px", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
-          <h2 style={{ marginTop: 0, marginBottom: "16px", fontSize: "18px" }}>Xác nhận trước khi gửi</h2>
-          <label className="confirm" style={{ display: "flex", alignItems: "flex-start", gap: "12px", cursor: "pointer", marginBottom: "24px" }}>
-            <input type="checkbox" required style={{ width: "20px", height: "20px", marginTop: "2px" }}/>
-            <span style={{ fontSize: "15px", lineHeight: "1.5", color: "#334155" }}>Tôi cam kết thông tin và hình ảnh đã cung cấp là chính xác, đồng ý để nhà trường sử dụng cho công tác nhập học và quản lý học sinh.</span>
+        <div className="review-box review-box--confirm">
+          <h2>Xác nhận trước khi gửi</h2>
+          <label className="confirm confirm--plain">
+            <input type="checkbox" required />
+            <span>Tôi cam kết thông tin và hình ảnh đã cung cấp là chính xác, đồng ý để nhà trường sử dụng cho công tác nhập học và quản lý học sinh.</span>
           </label>
-          <button className="button button--primary button--large" style={{ width: "100%", padding: "16px", fontSize: "16px", borderRadius: "12px" }} disabled={busy || !data.student.canSubmit}>
+          <button className="button button--primary button--large submit-profile" disabled={busy || !data.student.canSubmit}>
             {busy ? "Đang xử lý…" : data.student.canSubmit ? "Gửi hồ sơ cho nhà trường" : "Hồ sơ đã được gửi"}
           </button>
         </div>

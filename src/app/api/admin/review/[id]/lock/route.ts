@@ -4,6 +4,7 @@ import { canTransition } from "@/domain/student-state";
 import { getSession } from "@/lib/auth";
 import { getClientIp, logServerError, publicServerError, requestId } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { acquireTransactionLock } from "@/lib/server/advisoryLock";
 
 const bodySchema = z.object({ lock: z.boolean() }).strict();
 
@@ -16,6 +17,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!parsed.success) return NextResponse.json({ error: "Dữ liệu khóa hồ sơ không hợp lệ." }, { status: 400 });
     const { id } = await params;
     const result = await prisma.$transaction(async (tx) => {
+      await acquireTransactionLock(tx, `review:${id}`);
       const student = await tx.student.findUnique({ where: { id }, select: { id: true, status: true } });
       if (!student) return { kind: "missing" as const };
       const nextStatus = parsed.data.lock ? "LOCKED" : "APPROVED";

@@ -24,18 +24,23 @@ describe("CCCD Validator", () => {
   });
 
   describe("Official Flags", () => {
-    it.each(OFFICIAL_EXCEPTIONS)(
-      "CCCD ngoại lệ %s always passes semantic checks",
-      (cccd) => {
-        // Cố tình truyền giới tính và năm sinh sai
-        const res = validateCCCD(cccd, "Nam", "2010");
-        expect(res.isValid).toBe(true);
-        expect(res.warnings).toContain(
-          "CCCD thuộc danh sách ngoại lệ được duyệt",
-        );
-        expect(res.errors.length).toBe(0);
-      },
-    );
+    if (OFFICIAL_EXCEPTIONS.length === 0) {
+      it("has no hard-coded CCCD exceptions", () => {
+        expect(OFFICIAL_EXCEPTIONS).toEqual([]);
+      });
+    } else {
+      it.each(OFFICIAL_EXCEPTIONS)(
+        "CCCD ngoại lệ %s always passes semantic checks",
+        (cccd) => {
+          const res = validateCCCD(cccd, "Nam", "2010");
+          expect(res.isValid).toBe(true);
+          expect(res.warnings).toContain(
+            "CCCD thuộc danh sách ngoại lệ được duyệt",
+          );
+          expect(res.errors.length).toBe(0);
+        },
+      );
+    }
   });
 
   describe("Semantic Validation", () => {

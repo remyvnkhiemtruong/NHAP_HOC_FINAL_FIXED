@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requiredFileIssues } from "@/lib/student/fileRequirements";
 import { coerceProfileFlags } from "@/lib/student/profilePersistence";
 import { studentSchema } from "@/lib/validations/studentSchema";
+import { effectiveProfileValue } from "@/lib/student/effectiveProfileValue";
 
 export async function POST(request: Request) {
   const id = requestId(request.headers);
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
       const student = await tx.student.findUnique({
         where: { id: session.studentId },
         include: {
-          files: { select: { category: true, status: true, current_version: true } },
+          files: { where: { is_current: true }, select: { category: true, status: true, current_version: true } },
           profile_values: true,
           profile_versions: { orderBy: { version_number: "desc" }, take: 1 },
         },
@@ -38,10 +39,7 @@ export async function POST(request: Request) {
 
       const fields: Record<string, string> = {};
       for (const value of student.profile_values) {
-        fields[value.field_code] =
-          (["ACCEPTED", "ADMIN_EDITED"].includes(value.change_status) && value.approved_value !== null
-            ? value.approved_value
-            : value.proposed_value ?? value.source_value) ?? "";
+        fields[value.field_code] = effectiveProfileValue(value);
       }
       const validation = studentSchema.safeParse(coerceProfileFlags(fields));
       if (!validation.success) {

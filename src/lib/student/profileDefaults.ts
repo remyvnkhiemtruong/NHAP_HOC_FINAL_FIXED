@@ -4,14 +4,20 @@ export function extractFirstName(fullName: string): string {
   return parts[parts.length - 1];
 }
 
-export function getHiddenFieldDefaults(studentInfo: { fullName: string }) {
+function formatVietnameseDate(value: Date): string {
+  const day = String(value.getDate()).padStart(2, "0");
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${value.getFullYear()}`;
+}
+
+export function getHiddenFieldDefaults(studentInfo: { fullName: string; admissionDate: Date }) {
   const fields = [
     { field_code: "B", value: "" }, // Mã học sinh
     { field_code: "D", value: extractFirstName(studentInfo.fullName) }, // Tên
     { field_code: "E", value: "" }, // Mã MOET
     { field_code: "H", value: "" }, // Lớp
     { field_code: "I", value: "Xét tuyển" }, // Hình thức trúng tuyển
-    { field_code: "J", value: "05/09/2026" }, // Ngày vào trường
+    { field_code: "J", value: formatVietnameseDate(studentInfo.admissionDate) }, // Ngày vào trường
     { field_code: "K", value: "Đang học" }, // Trạng thái của học sinh
     { field_code: "M", value: "" }, // Mã xã/phường thường trú (will be derived later)
     { field_code: "P", value: "" }, // Sổ đăng bộ

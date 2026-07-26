@@ -178,7 +178,9 @@ describe("school Excel workbook", () => {
   jest.setTimeout(120000);
 
   it("preserves the six-sheet template, validations, header, and typed data row", async () => {
-    const output = await generateSchoolExcel([student]);
+    const output = await generateSchoolExcel([student], {
+      admissionDate: new Date(2027, 7, 18),
+    });
     const templateWorkbook = new ExcelJS.Workbook();
     await templateWorkbook.xlsx.readFile(
       "00_INPUTS/02_MAU_XUAT_95_COT_SMAS_MOET.xlsx",
@@ -225,7 +227,7 @@ describe("school Excel workbook", () => {
     expect(sheet.getCell("BF5").numFmt).toBe("@");
     expect(sheet.getCell("F5").value).toBeInstanceOf(Date);
     expect(sheet.getCell("F5").numFmt).toBe("dd/mm/yyyy");
-    expect(sheet.getCell("J5").value).toEqual(new Date(2026, 8, 5));
+    expect(sheet.getCell("J5").value).toEqual(new Date(2027, 7, 18));
     expect(sheet.getCell("B5").value).toBe("");
     expect(sheet.getCell("E5").value).toBe("");
     expect(sheet.getCell("CP5").value).toBe("");

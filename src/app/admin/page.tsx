@@ -34,17 +34,17 @@ export default function AdminDashboard() {
               <small>đã nhập vào hệ thống</small>
             </article>
             <article>
-              <span style={{ color: "var(--gold)" }}>Chờ xử lý</span>
+              <span className="text-gold">Chờ xử lý</span>
               <strong>{summary?.pending ?? "—"}</strong>
               <small>cần quản trị kiểm tra</small>
             </article>
             <article>
-              <span style={{ color: "var(--green)" }}>Đã duyệt</span>
+              <span className="text-green">Đã duyệt</span>
               <strong>{summary?.reviewed ?? "—"}</strong>
               <small>đủ điều kiện hoàn tất</small>
             </article>
             <article>
-              <span style={{ color: "var(--red)" }}>Cần bổ sung</span>
+              <span className="text-red">Cần bổ sung</span>
               <strong>{summary?.countByStatus?.NEED_REVISION ?? "—"}</strong>
               <small>đã trả về học sinh</small>
             </article>
@@ -89,7 +89,7 @@ export default function AdminDashboard() {
                               <span className="ok-text">✓ Tốt</span>
                             )}
                           </td>
-                          <td style={{ textAlign: "right" }}>
+                          <td className="text-right">
                             <Link className="table-link" href={`/admin/review/${student.id}`}>
                               Duyệt
                             </Link>

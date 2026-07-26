@@ -1,4 +1,5 @@
 import { z } from "zod";
+import Decimal from "decimal.js";
 
 export const ADMISSION_FIELD_CODES = {
   middleSchool: "ADMISSION_H",
@@ -71,7 +72,6 @@ export function calculateAdmissionScore(
     input.fourYearConduct,
     input.priorityScore,
     input.encouragementScore,
-  ].reduce((sum, value) => sum + (value ? Number(value) : 0), 0);
-  return Number(total.toFixed(2)).toString();
+  ].reduce((sum, value) => sum.plus(value || 0), new Decimal(0));
+  return total.toDecimalPlaces(2).toString();
 }
-

@@ -12,6 +12,11 @@ CREATE TABLE "AdminSession" (
     CONSTRAINT "AdminSession_pkey" PRIMARY KEY ("id")
 );
 
+-- Existing student sessions cannot be backfilled because only the original
+-- bearer token can produce token_hash. Revoke them before making the column
+-- mandatory so this migration also works on a populated pre-auth schema.
+DELETE FROM "StudentAccessSession";
+
 -- AlterTable
 ALTER TABLE "StudentAccessSession" 
   ADD COLUMN "token_hash" TEXT NOT NULL,
@@ -23,16 +28,10 @@ ALTER TABLE "StudentAccessSession"
 CREATE UNIQUE INDEX "AdminSession_token_hash_key" ON "AdminSession"("token_hash");
 
 -- CreateIndex
-CREATE INDEX "AdminSession_token_hash_idx" ON "AdminSession"("token_hash");
-
--- CreateIndex
 CREATE INDEX "AdminSession_admin_id_idx" ON "AdminSession"("admin_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "StudentAccessSession_token_hash_key" ON "StudentAccessSession"("token_hash");
-
--- CreateIndex
-CREATE INDEX "StudentAccessSession_token_hash_idx" ON "StudentAccessSession"("token_hash");
 
 -- CreateIndex
 CREATE INDEX "StudentAccessSession_student_id_idx" ON "StudentAccessSession"("student_id");

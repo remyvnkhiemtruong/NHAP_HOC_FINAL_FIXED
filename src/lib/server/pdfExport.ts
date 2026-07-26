@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import path from "node:path";
 import { readPrivateFile } from "./fileStorage";
+import { effectiveProfileValue } from "@/lib/student/effectiveProfileValue";
 
 const PDF_FONT = {
   regular: path.join(
@@ -69,6 +70,12 @@ export interface PdfStudentData {
   }>;
 }
 
+export type PdfCampaignConfig = {
+  schoolName: string;
+  schoolYearStart: number;
+  schoolYearEnd: number;
+};
+
 /**
  * Get effective display value for a field: approved_value > proposed_value > source_value
  */
@@ -77,10 +84,7 @@ function getEffectiveValue(
   fieldCode: string,
 ): string {
   const pv = profileValues.find((v) => v.field_code === fieldCode);
-  if (!pv) return "";
-  return pv.change_status === "ACCEPTED" || pv.change_status === "ADMIN_EDITED"
-    ? (pv.approved_value ?? pv.source_value ?? "")
-    : (pv.source_value ?? "");
+  return effectiveProfileValue(pv);
 }
 
 /**
@@ -121,6 +125,7 @@ async function renderDocumentThumbnail(
 
 export async function generateStudentPdf(
   data: PdfStudentData,
+  campaign?: PdfCampaignConfig,
 ): Promise<Buffer> {
   return new Promise(async (resolve, reject) => {
     try {
@@ -139,12 +144,14 @@ export async function generateStudentPdf(
       doc
         .fontSize(13)
         .font("NotoSans-Bold")
-        .text("TRƯỜNG THPT VÕ VĂN KIỆT", { align: "center" });
+        .text((campaign?.schoolName ?? "HỒ SƠ NHẬP HỌC").toLocaleUpperCase("vi-VN"), { align: "center" });
       doc
         .fontSize(11)
         .font("NotoSans")
         .text(
-          "Hệ thống hồ sơ học sinh trúng tuyển lớp 10 – Năm học 2026–2027",
+          campaign
+            ? `Hệ thống hồ sơ học sinh trúng tuyển lớp 10 – Năm học ${campaign.schoolYearStart}–${campaign.schoolYearEnd}`
+            : "Hệ thống hồ sơ học sinh trúng tuyển lớp 10",
           { align: "center" },
         );
       doc.moveDown(0.5);
@@ -368,7 +375,7 @@ export async function generateStudentPdf(
         .fontSize(9)
         .font("NotoSans")
         .text(
-          `Ngày tạo PDF: ${new Date().toLocaleString("vi-VN")}   |   CCCD: ${cccd}   |   Copyright 2026 by Truong Minh Khiem`,
+          `Ngày tạo PDF: ${new Date().toLocaleString("vi-VN")}   |   CCCD: ${cccd}`,
           {
             align: "right",
           },

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Be_Vietnam_Pro } from "next/font/google";
+import { connection } from "next/server";
 import "./globals.css";
 
 const beVietnamPro = Be_Vietnam_Pro({ 
@@ -8,18 +9,21 @@ const beVietnamPro = Be_Vietnam_Pro({
 });
 
 export const metadata: Metadata = {
-  title: { default: "Nhập học trực tuyến | THPT Võ Văn Kiệt", template: "%s | THPT Võ Văn Kiệt" },
+  title: { default: "Nhập học trực tuyến", template: "%s | Nhập học trực tuyến" },
   description: "Hệ thống tiếp nhận và quản lý hồ sơ nhập học lớp 10 trực tuyến.",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // A strict nonce-based CSP requires a fresh server-rendered document for
+  // every request so Next.js can apply the request nonce to framework scripts.
+  await connection();
   return (
     <html lang="vi">
-      <body className={beVietnamPro.className} style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <body className={`${beVietnamPro.className} app-shell`}>
+        <div className="app-shell__content">
           {children}
         </div>
-        <footer className="footer"><div className="container">© 2026 Trường THPT Võ Văn Kiệt · Hệ thống nhập học trực tuyến - Copyright 2026 by Truong Minh Khiem</div></footer>
+        <footer className="footer"><div className="container">Hệ thống nhập học trực tuyến</div></footer>
       </body>
     </html>
   );

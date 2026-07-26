@@ -3,8 +3,10 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/prisma/client";
 import "dotenv/config";
 import { encryptionExtension } from "./prisma-encryption";
+import { runtimeEnv } from "./env";
 
-const databaseUrl = process.env.DATABASE_URL;
+const productionConfig = process.env.NODE_ENV === "production" ? runtimeEnv() : null;
+const databaseUrl = productionConfig?.DATABASE_URL ?? process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 
 const globalForPrisma = globalThis as unknown as {

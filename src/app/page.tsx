@@ -1,7 +1,11 @@
 import Link from "next/link";
 import AppHeader from "@/components/AppHeader";
+import { activeCampaign } from "@/lib/campaign";
 
-export default function HomePage() {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const campaign = await activeCampaign();
   return (
     <>
       <AppHeader />
@@ -9,8 +13,9 @@ export default function HomePage() {
         <section className="hero">
           <div className="container hero__grid">
             <div>
-              <span className="eyebrow">NĂM HỌC 2026–2027</span>
+              <span className="eyebrow">NĂM HỌC {campaign.school_year_start}–{campaign.school_year_end}</span>
               <h1>Hệ thống nhập học trực tuyến lớp 10</h1>
+              <p className="hero__lead">{campaign.school_name} · Nhập học ngày {campaign.admission_date.toLocaleDateString("vi-VN")}</p>
 
               <div className="hero__actions">
                 <Link className="button button--primary" href="/student/login">Bắt đầu nhập học</Link>

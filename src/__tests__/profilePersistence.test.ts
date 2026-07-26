@@ -10,7 +10,12 @@ describe("readPersistedFields", () => {
         has_policy: true,
         M: "00070",
       }),
-    ).toEqual({ C: "NGUYỄN VĂN A", BF: "095000000001" });
+    ).toEqual({
+      C: "NGUYỄN VĂN A",
+      BF: "095000000001",
+      giong_thuong_tru: "false",
+      has_policy: "true",
+    });
   });
 
   it.each([null, undefined, [], "not-an-object", 42])(

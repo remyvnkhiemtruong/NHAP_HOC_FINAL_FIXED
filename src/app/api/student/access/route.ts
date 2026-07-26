@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rateLimit";
 import { profileSeedRows } from "@/lib/student/profileSeed";
 import { parseStudentAccessPayload } from "@/lib/validations/studentAccess";
+import { activeCampaign } from "@/lib/campaign";
+import { blindIndex } from "@/lib/encryption";
 
 export async function POST(request: Request) {
   const id = requestId(request.headers);
@@ -21,7 +23,7 @@ export async function POST(request: Request) {
 
     const ipLimit = await rateLimit(
       `ratelimit:student:ip:${ip}`,
-      Number.parseInt(process.env.STUDENT_LOGIN_IP_LIMIT ?? "1200", 10),
+      Number.parseInt(process.env.STUDENT_LOGIN_IP_LIMIT ?? "60", 10),
       60_000,
     );
     const identityKey = crypto.createHash("sha256").update(payload.cccd).digest("hex");
@@ -41,8 +43,14 @@ export async function POST(request: Request) {
       "Số CCCD hoặc ngày sinh không khớp với danh sách trúng tuyển. Vui lòng kiểm tra lại hoặc liên hệ nhà trường.";
     if (payload.cccd === "0") return NextResponse.json({ error: genericError }, { status: 401 });
 
+    const campaign = await activeCampaign();
     const student = await prisma.student.findUnique({
-      where: { current_cccd: payload.cccd },
+      where: {
+        campaign_id_current_cccd_lookup: {
+          campaign_id: campaign.id,
+          current_cccd_lookup: blindIndex(payload.cccd, "current_cccd_lookup:v1"),
+        },
+      },
       include: { admission_record: true },
     });
     if (
@@ -58,7 +66,7 @@ export async function POST(request: Request) {
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     await prisma.$transaction(async (tx) => {
       await tx.studentProfileValue.createMany({
-        data: profileSeedRows(student.id, student.admission_record),
+        data: profileSeedRows(student.id, student.admission_record, campaign.admission_date),
         skipDuplicates: true,
       });
       await tx.studentAccessSession.create({

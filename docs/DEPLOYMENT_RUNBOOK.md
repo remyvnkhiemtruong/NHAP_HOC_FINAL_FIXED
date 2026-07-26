@@ -24,12 +24,17 @@ npx prisma validate
 npx prisma generate
 npx prisma migrate status
 npx prisma migrate deploy
+npm run backfill:search-indexes
 npm run seed:admin
 npm run build
 npm run start
 # tiến trình riêng, cùng .env và STORAGE_ROOT
 npm run worker
 ```
+
+Không đưa web nhận traffic trước khi backfill hoàn tất. `/api/health` chỉ trả
+`200 ready` khi PostgreSQL, Redis và toàn bộ blind index bắt buộc đều sẵn
+sàng; nếu còn bản ghi thiếu index, endpoint trả `503` cùng số lượng cần xử lý.
 
 Seed ADMIN idempotent: chạy lại cập nhật hash mật khẩu, role `ADMIN` và trạng thái active của cùng username. Script từ chối username mặc định/test và mật khẩu ngắn. Dữ liệu trúng tuyển không được seed kèm mã nguồn; nhập qua màn hình `/admin/import` để có nhật ký và kiểm tra file.
 
@@ -76,7 +81,10 @@ Khi PostgreSQL báo `ECONNREFUSED`, xác nhận service, DNS/port, `DATABASE_URL
 
 ## Nghiệm thu và API
 
-Trước go-live chạy `npm run lint`, `npx tsc --noEmit`, `npm test -- --runInBand`, `npm run test:integration`, `npm run test:e2e`, `npm run build`; kiểm tra desktop/mobile, console, hydration, network và API 5xx.
+Trước go-live dùng Node.js 22 và chạy `npm run lint`, `npm run typecheck`,
+`npm run test:unit`, `npm run test:integration`, `npm run test:uat`,
+`npm run test:e2e`, `npm run build`, `npm run verify:audit`; kiểm tra
+desktop/tablet/mobile, console, hydration, network và API 5xx.
 
 Export theo API contract: tạo job `POST /api/admin/exports/{student-pdf|school-excel|photo-4x6-zip|cccd-zip}`, polling `GET /api/admin/jobs/:id`, download `GET /api/admin/jobs/:id/download`. Payload/params validate server-side; output chỉ tải khi `COMPLETED`, CSV lỗi có thể tải khi `FAILED`.
 

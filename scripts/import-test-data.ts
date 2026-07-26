@@ -1,10 +1,12 @@
 import { prisma } from "../src/lib/prisma";
 import { upsertImportedData } from "../src/services/import/upsertService";
+import { ensureDefaultCampaign } from "../src/lib/campaign";
 import { createSyntheticAdmissionParseResult } from "./synthetic-admission-fixture";
 
 async function main(): Promise<void> {
   const parsed = createSyntheticAdmissionParseResult();
-  await upsertImportedData(parsed, "test-admin", { idempotent: true });
+  const campaign = await ensureDefaultCampaign();
+  await upsertImportedData(parsed, "test-admin", campaign.id, { idempotent: true });
 }
 
 main()

@@ -1,10 +1,20 @@
 import crypto from "crypto";
+import { logger } from "@/lib/logger";
 
 const MAX_FORWARDED_IP_LENGTH = 64;
 
 export function getClientIp(headers: Headers): string {
-  const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const realIp = headers.get("x-real-ip")?.trim();
+  const hops = Math.max(0, Math.min(3, Number.parseInt(process.env.TRUSTED_PROXY_HOPS ?? "1", 10) || 0));
+  const forwardedChain = headers
+    .get("x-forwarded-for")
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const forwarded =
+    forwardedChain && hops > 0 && forwardedChain.length >= hops
+      ? forwardedChain[forwardedChain.length - hops]
+      : undefined;
+  const realIp = hops > 0 ? headers.get("x-real-ip")?.trim() : undefined;
   const candidate = forwarded || realIp || "unknown";
   if (candidate.length > MAX_FORWARDED_IP_LENGTH) return "unknown";
   return /^[0-9a-fA-F:.]+$/.test(candidate) ? candidate : "unknown";
@@ -17,7 +27,7 @@ export function requestId(headers?: Headers): string {
 }
 
 export function logServerError(context: string, error: unknown, id: string): void {
-  console.error(`[${id}] ${context}`, error);
+  logger.error(context, { requestId: id, error });
 }
 
 export function publicServerError(id: string) {

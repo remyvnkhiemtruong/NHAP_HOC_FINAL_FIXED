@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Vui long dat POSTGRES_PASSWORD trong .env}
       POSTGRES_DB: ${POSTGRES_DB:-vvk_2026_2027}
     ports:
-      - "127.0.0.1:5434:5432"
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -29,6 +29,80 @@ services:
     volumes:
       - redis_data:/data
 
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vvk_app}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vvk_2026_2027}?schema=public
+      REDIS_URL: redis://redis:6379
+      STORAGE_ROOT: /data/private
+      RATE_LIMIT_BACKEND: redis
+      TRUSTED_PROXY_HOPS: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - private_storage:/data/private
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["npm", "run", "worker"]
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vvk_app}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vvk_2026_2027}?schema=public
+      REDIS_URL: redis://redis:6379
+      STORAGE_ROOT: /data/private
+      RATE_LIMIT_BACKEND: redis
+      TRUSTED_PROXY_HOPS: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - private_storage:/data/private
+    stop_grace_period: 30s
+    mem_limit: 1g
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:8080"
+    volumes:
+      - ./ops/nginx.conf:/etc/nginx/nginx.conf:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
 volumes:
   db_data:
   redis_data:
+  private_storage:

@@ -4,6 +4,8 @@ import crypto from "crypto";
 import * as XLSX from "xlsx";
 import { prisma } from "../src/lib/prisma";
 import { upsertImportedData } from "../src/services/import/upsertService";
+import { ensureDefaultCampaign } from "../src/lib/campaign";
+import type { ParsedAdmissionRow } from "../src/services/import/excelParser";
 
 function parseCellString(cell: XLSX.CellObject | undefined): string {
   if (!cell || cell.v === undefined || cell.v === null) return "";
@@ -44,7 +46,7 @@ async function main() {
   }
   
   const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:CQ1");
-  const rows: any[] = [];
+  const rows: ParsedAdmissionRow[] = [];
   
   console.log("Parsing SMAS export file...");
   
@@ -120,7 +122,8 @@ async function main() {
   };
   
   console.log(`Parsed ${parseResult.totalRows} rows. Importing to DB...`);
-  const result = await upsertImportedData(parseResult, "vvk_sysadmin", { idempotent: true });
+  const campaign = await ensureDefaultCampaign();
+  const result = await upsertImportedData(parseResult, "vvk_sysadmin", campaign.id, { idempotent: true });
   console.log("Import completed:", result);
 }
 

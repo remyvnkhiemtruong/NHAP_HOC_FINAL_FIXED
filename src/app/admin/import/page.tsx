@@ -47,7 +47,26 @@ export default function ImportPage() {
       const response = await fetch("/api/admin/import", { method: "POST", body: form });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error ?? "Không thể nhập file.");
-      setResult({ tone: "success", text: "Đã nhập dữ liệu thành công.", summary: json.summary });
+      setResult({ tone: "success", text: "Đã tiếp nhận file. Hệ thống đang kiểm tra trong tác vụ nền." });
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const statusResponse = await fetch(`/api/admin/import/jobs/${json.jobId}`, { cache: "no-store" });
+        const statusJson = await statusResponse.json();
+        if (!statusResponse.ok) throw new Error(statusJson.error ?? "Không thể đọc trạng thái import.");
+        if (statusJson.job.status === "FAILED") {
+          throw new Error(statusJson.job.error?.message ?? "Import thất bại.");
+        }
+        if (statusJson.job.status === "COMPLETED") {
+          setResult({
+            tone: "success",
+            text: "Đã nhập dữ liệu thành công.",
+            summary: statusJson.job.result,
+          });
+          return;
+        }
+        setResult({ tone: "success", text: `Đang kiểm tra và nhập dữ liệu… ${statusJson.job.progress}%` });
+      }
+      throw new Error("Tác vụ vẫn đang xử lý. Vui lòng kiểm tra lại sau.");
     } catch (e) {
       setResult({ tone: "error", text: e instanceof Error ? e.message : "Không thể nhập file." });
     } finally {
@@ -77,7 +96,7 @@ export default function ImportPage() {
                 Chọn file Excel
                 <input
                   type="file"
-                  style={{ display: "none" }}
+                  className="input-file-hidden"
                   accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   onChange={choose}
                 />
@@ -92,14 +111,14 @@ export default function ImportPage() {
             </div>
 
             {result && (
-              <div className={`notice notice--${result.tone}`} style={{ marginBottom: "24px", textAlign: "left" }}>
+              <div className={`notice notice--${result.tone} notice--result`}>
                 {result.text}
                 {result.summary && (
                   <div className="import-summary">
                     <span>Tổng: <b>{result.summary.totalRows}</b></span>
-                    <span>Hợp lệ: <b style={{ color: "var(--green)" }}>{result.summary.validRows}</b></span>
-                    <span>Cảnh báo: <b style={{ color: "var(--gold)" }}>{result.summary.warningRows}</b></span>
-                    <span>Lỗi: <b style={{ color: "var(--red)" }}>{result.summary.errorRows}</b></span>
+                    <span>Hợp lệ: <b className="text-green">{result.summary.validRows}</b></span>
+                    <span>Cảnh báo: <b className="text-gold">{result.summary.warningRows}</b></span>
+                    <span>Lỗi: <b className="text-red">{result.summary.errorRows}</b></span>
                   </div>
                 )}
               </div>
@@ -107,8 +126,7 @@ export default function ImportPage() {
 
             <div className="panel-actions">
               <button
-                className="button button--primary"
-                style={{ width: "100%" }}
+                className="button button--primary button--full"
                 disabled={!file || busy}
                 onClick={upload}
               >
@@ -116,7 +134,7 @@ export default function ImportPage() {
               </button>
             </div>
             
-            <div className="panel-actions" style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "center" }}>
+            <div className="panel-actions panel-actions--manual">
               <button className="button button--secondary" onClick={() => setShowManualForm(!showManualForm)}>
                 {showManualForm ? "Đóng form thêm thủ công" : "+ Thêm học sinh thủ công"}
               </button>
@@ -124,9 +142,9 @@ export default function ImportPage() {
           </section>
 
           {showManualForm && (
-            <section className="panel manual-panel" style={{ marginTop: "24px" }}>
+            <section className="panel manual-panel mt-24">
               <h2>Thêm học sinh thủ công</h2>
-              <form onSubmit={submitManual} style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "16px" }}>
+              <form onSubmit={submitManual} className="manual-form">
                 <div>
                   <label className="field-label">Họ và tên *</label>
                   <input className="field-input" required value={manualData.fullName} onChange={(e) => setManualData({ ...manualData, fullName: e.target.value })} />
@@ -150,7 +168,7 @@ export default function ImportPage() {
             </section>
           )}
 
-          <section className="panel guide-panel" style={{ marginTop: "24px" }}>
+          <section className="panel guide-panel mt-24">
             <h2>Yêu cầu đối với file</h2>
             <div className="check-grid">
               <p><span className="ok-text">✓</span> Giữ nguyên tên và thứ tự cột trong file mẫu.</p>

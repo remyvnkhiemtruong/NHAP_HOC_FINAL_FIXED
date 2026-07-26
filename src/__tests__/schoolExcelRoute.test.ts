@@ -4,11 +4,13 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { enqueueExportJob } from "@/services/queue/exportQueue";
 import { POST } from "@/app/api/admin/exports/[type]/route";
+import { loadApprovedStudents } from "@/lib/server/exportService";
 
 jest.mock("@/lib/auth", () => ({ getSession: jest.fn() }));
 jest.mock("@/lib/prisma", () => ({
   prisma: {
-    student: { count: jest.fn() },
+    admissionCampaign: { findFirst: jest.fn() },
+    student: { findMany: jest.fn() },
     exportJob: { findUnique: jest.fn() },
     auditLog: { create: jest.fn() },
     $transaction: jest.fn(),
@@ -18,11 +20,18 @@ jest.mock("@/services/queue/exportQueue", () => ({
   enqueueExportJob: jest.fn(),
 }));
 jest.mock("@/lib/server/exportService", () => ({
-  EXPORTABLE_STATUSES: ["APPROVED", "LOCKED", "EXPORTED"],
+  loadApprovedStudents: jest.fn(),
+}));
+jest.mock("@/lib/server/exportManifest", () => ({
+  buildExportContentManifest: jest.fn(() => ({
+    manifest: { version: 1, campaignId: "campaign-1", students: [] },
+    hash: "content-hash",
+  })),
 }));
 
 const getSessionMock = getSession as unknown as jest.Mock;
-const studentCountMock = prisma.student.count as unknown as jest.Mock;
+const campaignFindFirstMock = prisma.admissionCampaign.findFirst as unknown as jest.Mock;
+const studentFindManyMock = loadApprovedStudents as unknown as jest.Mock;
 const transactionMock = prisma.$transaction as unknown as jest.Mock;
 const exportJobFindUniqueMock = prisma.exportJob
   .findUnique as unknown as jest.Mock;
@@ -48,6 +57,7 @@ const request = (body: unknown) =>
 describe("POST /api/admin/exports/school-excel", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    campaignFindFirstMock.mockResolvedValue({ id: "campaign-1" });
     auditCreateMock.mockResolvedValue({});
   });
 
@@ -61,12 +71,12 @@ describe("POST /api/admin/exports/school-excel", () => {
     expect((await POST(request({ unexpected: true }), context)).status).toBe(
       400,
     );
-    expect(studentCountMock).not.toHaveBeenCalled();
+    expect(studentFindManyMock).not.toHaveBeenCalled();
   });
 
   it("reports a clear error when no eligible student exists", async () => {
     getSessionMock.mockResolvedValue({ userId: "admin-1" });
-    studentCountMock.mockResolvedValue(0);
+    studentFindManyMock.mockResolvedValue([]);
     const response = await POST(request({}), context);
     expect(response.status).toBe(422);
     await expect(response.json()).resolves.toEqual(
@@ -79,7 +89,7 @@ describe("POST /api/admin/exports/school-excel", () => {
 
   it("blocks a photo ZIP request when no eligible student exists", async () => {
     getSessionMock.mockResolvedValue({ userId: "admin-1" });
-    studentCountMock.mockResolvedValue(0);
+    studentFindManyMock.mockResolvedValue([]);
     const response = await POST(request({}), photoContext);
     expect(response.status).toBe(422);
     await expect(response.json()).resolves.toEqual(
@@ -91,7 +101,7 @@ describe("POST /api/admin/exports/school-excel", () => {
 
   it("blocks a CCCD ZIP request when no eligible student exists", async () => {
     getSessionMock.mockResolvedValue({ userId: "admin-1" });
-    studentCountMock.mockResolvedValue(0);
+    studentFindManyMock.mockResolvedValue([]);
     const response = await POST(request({}), cccdContext);
     expect(response.status).toBe(422);
     await expect(response.json()).resolves.toEqual(
@@ -103,7 +113,7 @@ describe("POST /api/admin/exports/school-excel", () => {
 
   it("returns an existing pending job instead of creating a duplicate", async () => {
     getSessionMock.mockResolvedValue({ userId: "admin-1" });
-    studentCountMock.mockResolvedValue(1);
+    studentFindManyMock.mockResolvedValue([{ id: "student-1" }]);
     transactionMock.mockImplementation(
       async (callback: (transaction: unknown) => Promise<unknown>) =>
         callback({
@@ -127,7 +137,7 @@ describe("POST /api/admin/exports/school-excel", () => {
 
   it("keeps a pending job recoverable and audits a queue outage", async () => {
     getSessionMock.mockResolvedValue({ userId: "admin-1" });
-    studentCountMock.mockResolvedValue(1);
+    studentFindManyMock.mockResolvedValue([{ id: "student-1" }]);
     transactionMock.mockImplementation(
       async (callback: (transaction: unknown) => Promise<unknown>) =>
         callback({
@@ -161,7 +171,7 @@ describe("POST /api/admin/exports/school-excel", () => {
 
   it("returns the concurrently-created active job after a dedupe conflict", async () => {
     getSessionMock.mockResolvedValue({ userId: "admin-1" });
-    studentCountMock.mockResolvedValue(1);
+    studentFindManyMock.mockResolvedValue([{ id: "student-1" }]);
     transactionMock.mockRejectedValue({ code: "P2002" });
     exportJobFindUniqueMock.mockResolvedValue({
       id: "job-1",

@@ -2,16 +2,26 @@ import { Queue } from "bullmq";
 import IORedis from "ioredis";
 
 export const EXPORT_QUEUE_NAME = "export-queue";
+const configuredRedisUrl = process.env.REDIS_URL;
+if (process.env.NODE_ENV === "production" && !configuredRedisUrl) {
+  throw new Error("Production requires REDIS_URL");
+}
 export const exportQueueConnection = new IORedis(
-  process.env.REDIS_URL ?? "redis://localhost:6379",
+  configuredRedisUrl ?? "redis://localhost:6379",
   {
+    lazyConnect: true,
     maxRetriesPerRequest: null,
   },
 );
 
-export const exportQueue = new Queue(EXPORT_QUEUE_NAME, {
-  connection: exportQueueConnection,
-});
+let exportQueue: Queue | undefined;
+
+export function getExportQueue(): Queue {
+  exportQueue ??= new Queue(EXPORT_QUEUE_NAME, {
+    connection: exportQueueConnection,
+  });
+  return exportQueue;
+}
 
 /**
  * Adds an ExportJob only when BullMQ does not already have the same job id.
@@ -22,10 +32,11 @@ export async function enqueueExportJob(
   jobId: string,
   type: string,
 ): Promise<boolean> {
-  const existing = await exportQueue.getJob(jobId);
+  const queue = getExportQueue();
+  const existing = await queue.getJob(jobId);
   if (existing) return false;
 
-  await exportQueue.add(
+  await queue.add(
     type,
     { exportJobId: jobId },
     {

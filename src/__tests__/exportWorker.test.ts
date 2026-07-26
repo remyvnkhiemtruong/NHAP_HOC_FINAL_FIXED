@@ -5,8 +5,9 @@ const mockUpdateProgress = jest.fn();
 jest.mock("bullmq", () => {
   class UnrecoverableError extends Error {}
   return {
+    Queue: jest.fn(() => ({ upsertJobScheduler: jest.fn() })),
     UnrecoverableError,
-    Worker: jest.fn(() => ({ on: jest.fn() })),
+    Worker: jest.fn(() => ({ on: jest.fn(), close: jest.fn() })),
   };
 });
 jest.mock("@/services/queue/exportQueue", () => ({
@@ -20,7 +21,16 @@ jest.mock("@/lib/prisma", () => ({
     $transaction: jest.fn(),
   },
 }));
-jest.mock("@/lib/server/fileStorage", () => ({ saveExportFile: jest.fn() }));
+jest.mock("@/lib/server/fileStorage", () => ({
+  saveExportFile: jest.fn(),
+  writeExportFile: jest.fn(),
+}));
+jest.mock("@/lib/server/exportManifest", () => ({
+  buildExportContentManifest: jest.fn(() => ({
+    manifest: { version: 1 },
+    hash: "content-hash",
+  })),
+}));
 jest.mock("@/lib/server/exportService", () => ({
   buildErrorReport: jest.fn(),
   effectiveValue: jest.fn(),
@@ -31,6 +41,15 @@ jest.mock("@/lib/server/exportService", () => ({
     CCCD_ZIP: "Anh_CCCD_toan_truong_2026_2027.zip",
   },
   generateImageZip: jest.fn(),
+  writeImageZip: jest.fn(),
+  writeBulkStudentPdfZip: jest.fn(),
+  writeScanReportPdf: jest.fn(),
+  writeSchoolExcel: jest.fn(),
+  exportFileNames: jest.fn(() => ({
+    SCHOOL_EXCEL: "Thong_tin_hoc_sinh_toan_truong_2026_2027.xlsx",
+    PHOTO_ZIP: "Anh_4x6_toan_truong_2026_2027.zip",
+    CCCD_ZIP: "Anh_CCCD_toan_truong_2026_2027.zip",
+  })),
   generatePdfForStudent: jest.fn(),
   generateSchoolExcel: jest.fn(),
   loadApprovedStudents: jest.fn(),
@@ -43,29 +62,34 @@ jest.mock("@/lib/server/exportService", () => ({
 import { Job } from "bullmq";
 import { prisma } from "@/lib/prisma";
 import { saveExportFile } from "@/lib/server/fileStorage";
+import { writeExportFile } from "@/lib/server/fileStorage";
 import {
   buildErrorReport,
-  generateImageZip,
-  generateSchoolExcel,
+  writeImageZip,
+  writeSchoolExcel,
   loadApprovedStudents,
   outputChecksum,
   preflightExport,
   studentsWithoutPreflightIssues,
 } from "@/lib/server/exportService";
 import { processExportJob } from "@/services/queue/worker";
+import { buildExportContentManifest } from "@/lib/server/exportManifest";
 
 const findUniqueMock = prisma.exportJob.findUnique as unknown as jest.Mock;
 const updateMock = prisma.exportJob.update as unknown as jest.Mock;
 const auditCreateMock = prisma.auditLog.create as unknown as jest.Mock;
 const transactionMock = prisma.$transaction as unknown as jest.Mock;
 const saveExportFileMock = saveExportFile as unknown as jest.Mock;
+const writeExportFileMock = writeExportFile as unknown as jest.Mock;
 const buildErrorReportMock = buildErrorReport as unknown as jest.Mock;
-const generateImageZipMock = generateImageZip as unknown as jest.Mock;
-const generateSchoolExcelMock = generateSchoolExcel as unknown as jest.Mock;
+const writeImageZipMock = writeImageZip as unknown as jest.Mock;
+const writeSchoolExcelMock = writeSchoolExcel as unknown as jest.Mock;
 const loadApprovedStudentsMock = loadApprovedStudents as unknown as jest.Mock;
 const outputChecksumMock = outputChecksum as unknown as jest.Mock;
 const preflightExportMock = preflightExport as unknown as jest.Mock;
 const studentsWithoutPreflightIssuesMock = studentsWithoutPreflightIssues as unknown as jest.Mock;
+const buildExportContentManifestMock =
+  buildExportContentManifest as unknown as jest.Mock;
 
 const makeJob = (attemptsMade = 0) =>
   ({
@@ -81,6 +105,14 @@ const pendingExcelJob = {
   status: "PENDING",
   subject_student_id: null,
   output_key: null,
+  campaign_id: "campaign-1",
+  payload_json: { cohortStudentIds: ["student-1"] },
+  content_manifest: { version: 1 },
+  content_manifest_hash: "content-hash",
+  campaign: {
+    code: "2026-2027",
+    admission_date: new Date("2026-08-15"),
+  },
 };
 
 describe("export worker", () => {
@@ -92,13 +124,21 @@ describe("export worker", () => {
       Promise.all(operations),
     );
     outputChecksumMock.mockReturnValue("sha256-checksum");
+    buildExportContentManifestMock.mockReturnValue({
+      manifest: { version: 1 },
+      hash: "content-hash",
+    });
   });
 
   it("persists progress, completion audit, and checksum after saving output", async () => {
     findUniqueMock.mockResolvedValue(pendingExcelJob);
     loadApprovedStudentsMock.mockResolvedValue([{ id: "student-1" }]);
-    generateSchoolExcelMock.mockResolvedValue(Buffer.from("xlsx"));
-    saveExportFileMock.mockResolvedValue("private/job-1/export.xlsx");
+    writeSchoolExcelMock.mockResolvedValue(undefined);
+    writeExportFileMock.mockResolvedValue({
+      storageKey: "private/job-1/export.xlsx",
+      checksum: "sha256-checksum",
+      size: 4,
+    });
 
     await expect(processExportJob(makeJob())).resolves.toEqual({
       success: true,
@@ -126,8 +166,10 @@ describe("export worker", () => {
     expect(mockUpdateProgress).toHaveBeenNthCalledWith(2, 20);
     expect(mockUpdateProgress).toHaveBeenNthCalledWith(3, 85);
     expect(mockUpdateProgress).toHaveBeenNthCalledWith(4, 100);
-    expect(saveExportFileMock.mock.invocationCallOrder[0]).toBeLessThan(
-      outputChecksumMock.mock.invocationCallOrder[0],
+    expect(writeExportFileMock).toHaveBeenCalledWith(
+      "job-1",
+      expect.stringContaining(".xlsx"),
+      expect.any(Function),
     );
     expect(auditCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -181,6 +223,28 @@ describe("export worker", () => {
     );
   });
 
+  it("rejects an export when cohort content changed after job creation", async () => {
+    findUniqueMock.mockResolvedValue(pendingExcelJob);
+    loadApprovedStudentsMock.mockResolvedValue([{ id: "student-1" }]);
+    buildExportContentManifestMock.mockReturnValue({
+      manifest: { version: 1 },
+      hash: "changed-content-hash",
+    });
+
+    await expect(processExportJob(makeJob())).rejects.toThrow(
+      "Export cohort changed after the job was created",
+    );
+    expect(writeExportFileMock).not.toHaveBeenCalled();
+    expect(updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "FAILED",
+          active_dedupe_key: null,
+        }),
+      }),
+    );
+  });
+
   it("fails ZIP preflight once with a CSV and no partial ZIP", async () => {
     const photoJob = { ...pendingExcelJob, type: "PHOTO_ZIP" };
     const student = {
@@ -203,7 +267,7 @@ describe("export worker", () => {
     await expect(processExportJob(makeJob())).rejects.toThrow(
       "No student has valid files for export",
     );
-    expect(generateImageZipMock).not.toHaveBeenCalled();
+    expect(writeImageZipMock).not.toHaveBeenCalled();
     expect(updateMock).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

@@ -6,60 +6,18 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AppHeader from "@/components/AppHeader";
 import StatusBadge from "@/components/StatusBadge";
+import {
+  ADMIN_REVIEW_STEPS as STEPS,
+  AUDIT_ACTION_LABELS as ACTION_LABELS,
+  AUDIT_ACTOR_LABELS as ACTOR_LABELS,
+  FIELD_LABELS as LABELS,
+  FILE_LABELS,
+} from "@/lib/admin/labels";
 
 type Diff = { id: string; field_code: string; source_value: string | null; proposed_value: string | null; updated_at: string };
 type ProfileValue = { id: string; field_code: string; source_value: string | null; proposed_value: string | null; updated_at: string; change_status?: string };
 type FileItem = { id: string; category: string; status: string; current_version: number; original_name: string; width: number | null; height: number | null };
 type Payload = { student: { id: string; name: string; current_cccd: string | null; current_dob: string; status: string }; admission_record: Record<string, unknown>; diffs: Diff[]; profile_values: ProfileValue[]; files: FileItem[]; auditLogs: { id: string; action: string; reason: string | null; created_at: string; actor_type: string }[] };
-
-const LABELS: Record<string,string>={
-  C:"Họ và tên",F:"Ngày sinh",G:"Giới tính",W:"Dân tộc",BF:"Số CCCD",BG:"Ngày cấp CCCD",BH:"Nơi cấp CCCD",
-  CG:"Tỉnh/thành nơi sinh",CH:"Xã/phường nơi sinh",BY:"Dân tộc (giấy khai sinh)",X:"Tôn giáo",
-  L:"Tỉnh thường trú",N:"Xã/phường thường trú",O:"Địa chỉ chi tiết",U:"Chỗ ở hiện nay",
-  V:"Ngày vào Đội",BL:"Ngày vào Đoàn",Y:"Đối tượng chính sách",Z:"Chế độ chính sách",BJ:"Diện ưu tiên",
-  AE:"Loại khuyết tật",AJ:"Biết bơi",BD:"Loại tốt nghiệp THCS",
-  AF:"Điện thoại học sinh",BI:"Email học sinh",
-  AK:"Họ tên cha",AL:"Năm sinh cha",AM:"Nghề nghiệp cha",AN:"Điện thoại cha",AO:"Email cha",AP:"Số CCCD cha",
-  AQ:"Họ tên mẹ",AR:"Năm sinh mẹ",AS:"Nghề nghiệp mẹ",AT:"Điện thoại mẹ",AU:"Email mẹ",AV:"Số CCCD mẹ",
-  AW:"Người bảo hộ",AX:"Năm sinh bảo hộ",AY:"Nghề nghiệp bảo hộ",AZ:"Điện thoại bảo hộ",BA:"Email bảo hộ",BB:"Số CCCD bảo hộ",
-  ADMISSION_H:"Trường THCS",ADMISSION_I:"Địa bàn trường THCS",ADMISSION_J:"Điểm TB 4 năm",ADMISSION_K:"Điểm hạnh kiểm",ADMISSION_L:"Điểm ưu tiên",ADMISSION_M:"Điểm khuyến khích",ADMISSION_N:"Điểm xét tuyển"
-};
-const FILE_LABELS:Record<string,string>={PHOTO_4X6:"Ảnh chân dung 4×6",CCCD_FRONT:"CCCD mặt trước",CCCD_BACK:"CCCD mặt sau",OTHER:"Tệp khác"};
-
-const STEPS = [
-  { title: "Thông tin trúng tuyển", fields: ["C", "F", "G", "W", "BF", "BG", "BH"] },
-  { title: "Nơi sinh và quê quán", fields: ["CG", "CH", "BY", "X"] },
-  { title: "Địa chỉ cư trú", fields: ["L", "N", "O"] },
-  { title: "Đội, Đoàn và chính sách", fields: ["V", "BL", "Y", "Z", "BJ"] },
-  { title: "Sức khỏe và học tập", fields: ["AE", "AJ", "BD"] },
-  { title: "Liên hệ học sinh", fields: ["AF", "BI"] },
-  { title: "Thông tin gia đình", fields: ["AK", "AL", "AM", "AN", "AO", "AP", "AQ", "AR", "AS", "AT", "AU", "AV"] },
-  { title: "Người bảo hộ", fields: ["AW", "AX", "AY", "AZ", "BA", "BB"] }
-];
-
-const ACTION_LABELS: Record<string, string> = {
-  PROFILE_DRAFT_SAVED: "Lưu bản nháp",
-  FILE_UPLOADED: "Tải lên tệp/ảnh",
-  CCCD_SERVER_SCAN_COMPLETED: "Quét CCCD thành công",
-  CCCD_SERVER_SCAN_FAILED: "Quét CCCD thất bại",
-  PROFILE_SUBMITTED: "Nộp hồ sơ",
-  PROFILE_RESUBMITTED: "Nộp lại hồ sơ",
-  ADMIN_REVISION_REQUESTED: "Yêu cầu bổ sung",
-  ADMIN_APPROVED: "Phê duyệt hồ sơ",
-  ADMIN_LOCKED: "Khóa hồ sơ",
-  ADMIN_UNLOCKED: "Mở khóa hồ sơ",
-  FILE_DECISION_APPROVE: "Duyệt tệp/ảnh",
-  FILE_DECISION_REJECT: "Từ chối tệp/ảnh",
-  EXPORT_REQUESTED: "Yêu cầu xuất dữ liệu",
-  STUDENT_LOGIN: "Đăng nhập",
-  ADMIN_EDIT_PROFILE: "Admin sửa thông tin",
-};
-
-const ACTOR_LABELS: Record<string, string> = {
-  STUDENT: "Học sinh",
-  ADMIN: "Quản trị viên",
-  SYSTEM: "Hệ thống",
-};
 
 export default function ReviewDetailPage(){
   const params=useParams<{id:string}>();
@@ -68,7 +26,7 @@ export default function ReviewDetailPage(){
   const[decisions,setDecisions]=useState<Record<string,{action:"ACCEPT"|"REJECT"}>>({});
   const[busy,setBusy]=useState(false);
   const[isSelectingRevision,setIsSelectingRevision]=useState(false);
-  const[editingField,setEditingField]=useState<{field_code:string;value:string}|null>(null);
+  const[editingField,setEditingField]=useState<{id:string;field_code:string;value:string;expectedUpdatedAt:string}|null>(null);
   const[message,setMessage]=useState<{tone:string;text:string}|null>(null);
 
   const load=useCallback(async()=>{
@@ -94,7 +52,7 @@ export default function ReviewDetailPage(){
 
   const groupedFields = useMemo(() => {
     if (!data) return [];
-    return STEPS.map(step => {
+    const groups: Array<{ title: string; values: ProfileValue[] }> = STEPS.map(step => {
       let values = step.fields.map(f => data.profile_values.find(v => v.field_code === f)).filter(Boolean) as ProfileValue[];
       values = values.filter(v => {
         if (v.field_code === 'AE' && (!v.proposed_value || v.proposed_value.trim() === '')) return false;
@@ -102,6 +60,13 @@ export default function ReviewDetailPage(){
       });
       return { title: step.title, values };
     }).filter(g => g.values.length > 0);
+    const covered = new Set<string>(STEPS.flatMap(step => [...step.fields]));
+    const remaining = data.profile_values.filter(
+      value => !covered.has(value.field_code) &&
+        !(value.field_code === "AE" && !value.proposed_value?.trim()),
+    );
+    if (remaining.length) groups.push({ title: "Thông tin khác", values: remaining });
+    return groups;
   }, [data]);
 
   function decide(val:ProfileValue,action:"ACCEPT"|"REJECT"){
@@ -131,7 +96,14 @@ export default function ReviewDetailPage(){
 
   async function saveFieldEdit(){
     if(!editingField)return;
-    const ok = await post(`/api/admin/review/${params.id}/edit`,{field_code:editingField.field_code,proposed_value:editingField.value});
+    const ok = await post(`/api/admin/review/${params.id}/approve`,{
+      items:[{
+        id:editingField.id,
+        action:"EDIT",
+        expectedUpdatedAt:editingField.expectedUpdatedAt,
+        new_value:editingField.value,
+      }],
+    });
     if(ok){
       setEditingField(null);
     }
@@ -139,17 +111,30 @@ export default function ReviewDetailPage(){
 
   async function saveReview(completeReview:boolean){
     if(completeReview&&!confirm("Bạn xác nhận phê duyệt toàn bộ thông tin hợp lệ?"))return;
-    const items=data!.profile_values.map(val=>({id:val.id,action:"ACCEPT"}));
-    const ok=await post(`/api/admin/review/${params.id}/approve`,{items,completeReview});
-    if(ok){setDecisions({});setIsSelectingRevision(false);if(completeReview)router.refresh()}
+    const items=data!.profile_values
+      .filter(val=>val.change_status==="PROPOSED")
+      .map(val=>({id:val.id,action:"ACCEPT",expectedUpdatedAt:val.updated_at}));
+    const decisionsSaved=items.length===0||await post(`/api/admin/review/${params.id}/approve`,{items});
+    if(!decisionsSaved)return;
+    const completed=!completeReview||await post(`/api/admin/review/${params.id}/complete`,{});
+    if(completed){setDecisions({});setIsSelectingRevision(false);if(completeReview)router.refresh()}
   }
 
   async function requestRevision(){
     const errorFields=data!.profile_values.filter(v=>decisions[v.id]?.action==="REJECT").map(v=>LABELS[v.field_code]??v.field_code);
-    const prefix=errorFields.length>0?`Cần sửa lại thông tin: ${errorFields.join(", ")}. `:"";
+    const errorFiles=currentFiles.filter(file=>decisions[file.id]?.action==="REJECT").map(file=>FILE_LABELS[file.category]??file.category);
+    const targets=[...errorFields,...errorFiles];
+    const prefix=targets.length>0?`Cần sửa lại: ${targets.join(", ")}. `:"";
     const reason=prompt("Nhập lý do học sinh cần sửa (tối thiểu 10 ký tự):",prefix);
     if(reason){
-      const ok = await post(`/api/admin/review/${params.id}/request-revision`,{reason});
+      const profileItems=data!.profile_values
+        .filter(v=>decisions[v.id]?.action==="REJECT")
+        .map(v=>({profileValueId:v.id,reason}));
+      const fileItems=currentFiles
+        .filter(file=>decisions[file.id]?.action==="REJECT")
+        .map(file=>({fileId:file.id,reason}));
+      const items=[...profileItems,...fileItems];
+      const ok = await post(`/api/admin/review/${params.id}/request-revision`,{reason,items});
       if(ok) {
          setDecisions({});
          setIsSelectingRevision(false);
@@ -158,22 +143,24 @@ export default function ReviewDetailPage(){
   }
 
   async function fileDecision(file:FileItem,decision:"APPROVE"|"REJECT"){
-    let reason:string|undefined;
     if(decision==="REJECT"){
-      const p = prompt("Nhập lý do từ chối (bắt buộc):");
-      if(!p) return;
-      reason = p;
+      setIsSelectingRevision(true);
+      setDecisions(current => {
+        const next={...current};
+        if(next[file.id]?.action==="REJECT") delete next[file.id];
+        else next[file.id]={action:"REJECT"};
+        return next;
+      });
+      return;
     }
-    await post(`/api/admin/review/${params.id}/file/${file.id}/decision`,{decision,reason});
-    setDecisions(d=>({...d,[file.id]:{action: decision === "APPROVE" ? "ACCEPT" : "REJECT"}}));
+    await post(`/api/admin/review/${params.id}/files/${file.id}/decision`,{decision});
   }
 
   async function toggleLock() {
     if(!data) return;
     const isLocked = data.student.status === "LOCKED";
-    const action = isLocked ? "unlock" : "lock";
     if(!isLocked && !confirm("Bạn có chắc chắn muốn khóa hồ sơ này? Học sinh sẽ không thể sửa lại hồ sơ.")) return;
-    const ok = await post(`/api/admin/review/${params.id}/${action}`, {});
+    const ok = await post(`/api/admin/review/${params.id}/lock`, {lock:!isLocked});
     if(ok) {
       router.refresh();
       await load();
@@ -213,8 +200,8 @@ export default function ReviewDetailPage(){
 
           <div className="review-layout">
             <div className="review-content">
-              <section className="panel" style={{ padding: '32px' }}>
-                <div className="panel__head" style={{ marginBottom: '24px' }}>
+              <section className="panel panel--review">
+                <div className="panel__head">
                   <div>
                     <h2>Hồ sơ học sinh</h2>
                     <p>Toàn bộ thông tin được tổ chức theo nhóm.</p>
@@ -238,15 +225,18 @@ export default function ReviewDetailPage(){
                             <div className="review-card__head">
                               <strong>
                                 {LABELS[val.field_code] ?? val.field_code}
-                                {!isSelectingRevision && editingField?.field_code !== val.field_code && (
-                                  <button className="edit-btn" onClick={() => setEditingField({ field_code: val.field_code, value: val.proposed_value || '' })} title="Sửa thông tin" disabled={busy}>✏️</button>
+                                {!isSelectingRevision &&
+                                  val.change_status !== "PREVIEW" &&
+                                  ["SUBMITTED", "RESUBMITTED"].includes(data.student.status) &&
+                                  editingField?.id !== val.id && (
+                                  <button className="edit-btn" onClick={() => setEditingField({ id:val.id, field_code: val.field_code, value: val.proposed_value || '', expectedUpdatedAt:val.updated_at })} title="Sửa thông tin" disabled={busy}>✏️</button>
                                 )}
                               </strong>
                               {isSelectingRevision && hasChanged && <span className="review-badge review-badge--changed">Đã sửa</span>}
                               {val.change_status === 'PREVIEW' && <span className="review-badge review-badge--system">Dữ liệu hệ thống</span>}
                             </div>
                             
-                            {editingField?.field_code === val.field_code ? (
+                            {editingField?.id === val.id ? (
                               <div className="review-edit-form">
                                 <input 
                                   type="text" 
@@ -306,8 +296,10 @@ export default function ReviewDetailPage(){
                         </div>
                         <p>Phiên bản {file.current_version} · {file.width ?? "?"}×{file.height ?? "?"} px</p>
                         <div>
-                          <button className="button button--success button--small" onClick={() => fileDecision(file, "APPROVE")} disabled={busy}>Duyệt ảnh</button>
-                          <button className="button button--danger button--small" onClick={() => fileDecision(file, "REJECT")} disabled={busy}>Từ chối</button>
+                          <button className="button button--success button--small" onClick={() => fileDecision(file, "APPROVE")} disabled={busy || isSelectingRevision}>Duyệt ảnh</button>
+                          <button className="button button--danger button--small" onClick={() => fileDecision(file, "REJECT")} disabled={busy}>
+                            {decisions[file.id]?.action === "REJECT" ? "Bỏ đánh dấu" : "Yêu cầu tải lại"}
+                          </button>
                         </div>
                       </div>
                     </article>

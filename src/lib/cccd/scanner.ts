@@ -1,6 +1,7 @@
 import jsQR from 'jsqr';
 import Tesseract from 'tesseract.js';
 import { parseCccdQr, ParsedQrData } from './qrParser';
+import { logger } from "@/lib/logger";
 
 export interface ScanResult {
   qr: {
@@ -55,7 +56,7 @@ export async function processCccdImage(file: File): Promise<ScanResult> {
     await worker.terminate();
 
   } catch (error) {
-    console.error('Lỗi khi xử lý ảnh CCCD:', error);
+    logger.error("CCCD image processing failed", { error });
   } finally {
     URL.revokeObjectURL(imageUrl);
   }

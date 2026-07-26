@@ -7,6 +7,7 @@ export const EXCEL_FIELD_CODES = [
 ] as const;
 
 import { stripLocationCode } from "@/lib/utils/stringUtils";
+import { effectiveProfileValue } from "@/lib/student/effectiveProfileValue";
 
 export type ExcelFieldCode = (typeof EXCEL_FIELD_CODES)[number];
 export type ExcelCellValue = string | Date;
@@ -14,6 +15,7 @@ export type ExcelCellValue = string | Date;
 export type EffectiveProfileValue = {
   field_code: string;
   source_value: string | null;
+  proposed_value?: string | null;
   approved_value: string | null;
   change_status: 'UNCHANGED' | 'PROPOSED' | 'ACCEPTED' | 'REJECTED' | 'ADMIN_EDITED';
 };
@@ -54,7 +56,6 @@ export type SchoolExcelStudent = {
 
 const LOCKED_DEFAULTS: Partial<Record<ExcelFieldCode, string | Date>> = {
   I: 'Xét tuyển',
-  J: new Date(2026, 8, 5),
   K: 'Đang học',
   AB: 'Không',
   AC: 'Đồng bằng',
@@ -73,6 +74,10 @@ const LOCKED_DEFAULTS: Partial<Record<ExcelFieldCode, string | Date>> = {
   CM: 'Có',
   CN: 'Không',
   CO: 'Không',
+};
+
+export type CampaignExcelConfig = {
+  admissionDate: Date;
 };
 
 const TECHNICAL_EMPTY_FIELDS: readonly ExcelFieldCode[] = ['B', 'E', 'BP', 'CL', 'CP', 'CQ'];
@@ -95,11 +100,7 @@ const FAMILY_COLUMNS: Record<FamilyMember['type'], FamilyColumns> = {
 
 export function effectiveValue(values: readonly EffectiveProfileValue[], code: string): string {
   const value = values.find((entry) => entry.field_code === code);
-  if (!value) return '';
-  if (value.change_status === 'ACCEPTED' || value.change_status === 'ADMIN_EDITED') {
-    return value.approved_value ?? value.source_value ?? '';
-  }
-  return value.source_value ?? '';
+  return effectiveProfileValue(value);
 }
 
 function lastWord(value: string): string {
@@ -132,7 +133,11 @@ function setFamilyFallback(
   if (columns.cccd) values[columns.cccd] ||= member.cccd ?? '';
 }
 
-export function mapSchoolExcelRow(student: SchoolExcelStudent, rowNumber: number): ExcelCellValue[] {
+export function mapSchoolExcelRow(
+  student: SchoolExcelStudent,
+  rowNumber: number,
+  campaign?: CampaignExcelConfig,
+): ExcelCellValue[] {
   const field = (code: ExcelFieldCode): string => {
     const val = effectiveValue(student.profile_values, code);
     if (['L', 'N', 'CG', 'CH'].includes(code)) {
@@ -164,6 +169,7 @@ export function mapSchoolExcelRow(student: SchoolExcelStudent, rowNumber: number
     setFamilyFallback(values, student.family_members.find((member) => member.type === type), FAMILY_COLUMNS[type]);
   }
   for (const [code, value] of Object.entries(LOCKED_DEFAULTS) as [ExcelFieldCode, ExcelCellValue][]) values[code] = value;
+  if (campaign) values.J = campaign.admissionDate;
   for (const code of TECHNICAL_EMPTY_FIELDS) values[code] = '';
   for (const code of DATE_FIELDS) {
     const value = values[code];

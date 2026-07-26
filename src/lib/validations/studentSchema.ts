@@ -8,7 +8,7 @@ import { parseVietnameseDate } from "../student/profileRules";
 
 const validEthnicityNames = ETHNICITIES.map((e) => e.name);
 const validReligionNames = RELIGIONS.map((r) => r.name);
-const ADMISSION_YEAR = Number.parseInt(process.env.ADMISSION_YEAR ?? "2026", 10);
+const CURRENT_YEAR = new Date().getFullYear();
 
 // We'll define a flexible schema that allows all 95 fields (A-CQ) as strings
 // We can add strict refinements step by step
@@ -212,7 +212,7 @@ export const studentSchema = z
       if (
         value &&
         (!/^(19\d{2}|20\d{2})$/.test(value) ||
-          Number(value) > ADMISSION_YEAR)
+          Number(value) > CURRENT_YEAR)
       ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

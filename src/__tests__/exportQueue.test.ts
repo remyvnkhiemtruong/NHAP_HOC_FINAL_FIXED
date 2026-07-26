@@ -9,8 +9,10 @@ import { Queue } from "bullmq";
 import {
   enqueueExportJob,
   EXPORT_QUEUE_NAME,
+  getExportQueue,
 } from "@/services/queue/exportQueue";
 
+getExportQueue();
 const queueInstance = (Queue as unknown as jest.Mock).mock.results[0].value as {
   getJob: jest.Mock;
   add: jest.Mock;
