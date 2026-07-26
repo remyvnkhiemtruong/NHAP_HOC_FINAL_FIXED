@@ -39,7 +39,7 @@ services:
       REDIS_URL: redis://redis:6379
       STORAGE_ROOT: /data/private
       RATE_LIMIT_BACKEND: redis
-      TRUSTED_PROXY_HOPS: "1"
+      TRUSTED_PROXY_HOPS: "${TRUSTED_PROXY_HOPS:-1}"
     depends_on:
       db:
         condition: service_healthy
@@ -69,7 +69,7 @@ services:
       REDIS_URL: redis://redis:6379
       STORAGE_ROOT: /data/private
       RATE_LIMIT_BACKEND: redis
-      TRUSTED_PROXY_HOPS: "1"
+      TRUSTED_PROXY_HOPS: "${TRUSTED_PROXY_HOPS:-1}"
     depends_on:
       db:
         condition: service_healthy
